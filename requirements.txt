@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pymysql
+psycopg2-binary
+fastmcp
+python-dotenv
+cryptography
+sqlparse
+pyyaml
+pyjwt
+passlib[bcrypt]
+

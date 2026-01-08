@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DB MCP Server 管理后台</title>
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+    <!-- 登录页面 -->
+    <div id="login-page" class="page active">
+        <div class="login-container">
+            <div class="login-card">
+                <h1>DB MCP Server</h1>
+                <p class="subtitle">管理后台登录</p>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="username">用户名</label>
+                        <input type="text" id="username" name="username" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">密码</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">登录</button>
+                    <div id="login-error" class="error-message"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主应用页面 -->
+    <div id="app-page" class="page">
+        <!-- 顶部导航 -->
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <h2>DB MCP Server 管理后台</h2>
+            </div>
+            <div class="navbar-user">
+                <span class="user-name" id="current-user"></span>
+                <button class="btn btn-sm btn-outline" id="logout-btn">登出</button>
+            </div>
+        </nav>
+
+        <div class="container">
+            <!-- 侧边栏菜单 -->
+            <aside class="sidebar">
+                <nav class="sidebar-nav">
+                    <a href="#" class="nav-item active" data-page="instances">
+                        <span class="icon">🖥️</span>
+                        实例管理
+                    </a>
+                    <a href="#" class="nav-item" data-page="databases">
+                        <span class="icon">🗄️</span>
+                        数据库管理
+                    </a>
+                    <a href="#" class="nav-item" data-page="accounts">
+                        <span class="icon">👤</span>
+                        账号管理
+                    </a>
+                    <a href="#" class="nav-item" data-page="keys">
+                        <span class="icon">🔑</span>
+                        访问密钥
+                    </a>
+                    <a href="#" class="nav-item" data-page="permissions">
+                        <span class="icon">🛡️</span>
+                        权限配置
+                    </a>
+                    <a href="#" class="nav-item" data-page="audit">
+                        <span class="icon">📊</span>
+                        审计日志
+                    </a>
+                </nav>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="main-content">
+                <!-- 实例管理 -->
+                <div id="instances-content" class="content-section active">
+                    <div class="content-header">
+                        <h3>实例管理</h3>
+                        <button class="btn btn-primary" onclick="showInstanceModal()">
+                            <span class="icon">➕</span> 添加实例
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名称</th>
+                                    <th>主机</th>
+                                    <th>端口</th>
+                                    <th>数据库类型</th>
+                                    <th>描述</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="instances-table-body">
+                                <tr><td colspan="8" class="loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 数据库管理 -->
+                <div id="databases-content" class="content-section">
+                    <div class="content-header">
+                        <h3>数据库管理</h3>
+                        <button class="btn btn-primary" onclick="showDatabaseModal()">
+                            <span class="icon">➕</span> 添加数据库
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>实例ID</th>
+                                    <th>数据库名</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="databases-table-body">
+                                <tr><td colspan="5" class="loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 账号管理 -->
+                <div id="accounts-content" class="content-section">
+                    <div class="content-header">
+                        <h3>账号管理</h3>
+                        <button class="btn btn-primary" onclick="showAccountModal()">
+                            <span class="icon">➕</span> 添加账号
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>实例ID</th>
+                                    <th>用户名</th>
+                                    <th>密码</th>
+                                    <th>插件</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="accounts-table-body">
+                                <tr><td colspan="7" class="loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 访问密钥 -->
+                <div id="keys-content" class="content-section">
+                    <div class="content-header">
+                        <h3>访问密钥管理</h3>
+                        <button class="btn btn-primary" onclick="showKeyModal()">
+                            <span class="icon">➕</span> 添加密钥
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>密钥</th>
+                                    <th>描述</th>
+                                    <th>状态</th>
+                                    <th>创建者</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="keys-table-body">
+                                <tr><td colspan="7" class="loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 权限配置 -->
+                <div id="permissions-content" class="content-section">
+                    <div class="content-header">
+                        <h3>权限配置</h3>
+                        <button class="btn btn-primary" onclick="showPermissionModal()">
+                            <span class="icon">➕</span> 添加权限
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>密钥ID</th>
+                                    <th>实例ID</th>
+                                    <th>数据库ID</th>
+                                    <th>账号ID</th>
+                                    <th>只读</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="permissions-table-body">
+                                <tr><td colspan="8" class="loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 审计日志 -->
+                <div id="audit-content" class="content-section">
+                    <div class="content-header">
+                        <h3>审计日志</h3>
+                        <div class="filters">
+                            <input type="text" id="audit-filter-key" placeholder="访问密钥">
+                            <select id="audit-filter-operation">
+                                <option value="">所有操作</option>
+                                <option value="query">查询</option>
+                                <option value="transaction">事务</option>
+                                <option value="metadata">元数据</option>
+                            </select>
+                            <button class="btn btn-sm" onclick="loadAuditLogs()">查询</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>访问密钥</th>
+                                    <th>客户端IP</th>
+                                    <th>操作</th>
+                                    <th>SQL</th>
+                                    <th>行数</th>
+                                    <th>耗时(ms)</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-table-body">
+                                <tr><td colspan="8" class="loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 模态框容器 -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="modal-title">标题</h4>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- 动态内容 -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/admin.js"></script>
+</body>
+</html>

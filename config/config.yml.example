@@ -1,0 +1,43 @@
+# zr_db_mcp_server 配置文件示例
+# 使用方法：复制此文件为 config.yml 并修改相应配置
+
+# 服务配置
+server:
+  host: 0.0.0.0
+  port: 3000
+
+# 加密密钥配置
+security:
+  # ⚠️ 生产环境必须修改为随机生成的强密钥！
+  master_key: change_this_master_key_in_production
+  jwt_secret: change_this_jwt_secret_in_production
+  session_timeout: 3600  # 会话超时时间（秒）
+
+# 管理数据库配置（PostgreSQL）
+admin_database:
+  host: localhost
+  port: 5432
+  database: zr_db_mcp_admin
+  username: dbmcp_admin
+  # ⚠️ 生产环境必须修改密码！
+  password: change_this_password
+  pool_size: 10
+  max_overflow: 20
+
+# 数据库连接池配置
+database:
+  pool_enabled: true
+  pool_min_size: 5
+  pool_max_size: 20
+  pool_recycle: 300
+  pool_max_lifetime: 0
+  connection_timeout: 5
+
+# 日志配置
+logging:
+  level: INFO
+  dir: logs
+  # 审计日志写入数据库
+  audit_to_database: true
+  # 同时也写入文件（可选）
+  audit_to_file: false
