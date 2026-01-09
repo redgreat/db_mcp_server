@@ -1,21 +1,17 @@
-# zr_db_mcp_server
+# DB MCP Server
 
-中瑞专用数据库MCP服务端 - 企业级数据库访问代理系统
+企业级数据库访问代理系统，支持 MySQL 和 PostgreSQL。通过访问密钥、连接级权限控制、IP 白名单与审计日志，提供安全、可审计的数据库访问。所有真实数据库凭证集中管理，客户端无需知道数据库账号密码。
 
 ## 项目简介
 
-zr_db_mcp_server 是一个基于Docker部署的安全数据库代理服务，支持MySQL和PostgreSQL。通过访问密钥和多级权限控制，为客户端提供安全的数据库查询服务，所有数据库凭证集中管理，客户端无需知道真实的数据库账号密码。
-
-### 核心特性
-
-- 🔐 **访问控制**：基于访问密钥的三级权限控制（实例/数据库/账号）
-- 🛡️ **安全防护**：SQL注入检测、风险评分、IP白名单
-- 🔄 **事务支持**：完整的事务管理（开启/提交/回滚/状态查询）
-- 📊 **多数据库**：同时支持MySQL和PostgreSQL
-- 📡 **实时流式**：支持SSE (Server-Sent Events) 流式查询
-- 📝 **审计日志**：完整的访问日志和操作审计
-- 🌐 **Web管理**：提供Web管理界面配置实例、数据库、账号和权限
-- 🐳 **Docker部署**：使用supervisord管理，非root用户运行
+- 🔐 访问控制：按“访问密钥 × 连接”授权（只读/读写/DDL）
+- 🛡️ 安全防护：SQL 风险拦截、IP 白名单、数据脱敏
+- 🔄 事务支持：开启/提交/回滚/状态/清理
+- 📊 多数据库：支持 MySQL 与 PostgreSQL
+- 📡 标准 MCP：提供 HTTP API 与 SSE 标准协议
+- 📝 审计日志：完整记录操作与耗时
+- 🌐 Web 管理：图形化管理连接、密钥、权限、白名单
+- 🐳 Docker 部署：supervisord 管理，非 root 运行
 
 ## 快速开始
 
@@ -24,363 +20,302 @@ zr_db_mcp_server 是一个基于Docker部署的安全数据库代理服务，支
 - Docker 20.10+
 - Docker Compose 1.29+
 
-### 使用Docker Compose部署
+### 使用 Docker Compose 部署
 
-1. **克隆项目**
+1. 克隆项目
 
 ```bash
 git clone https://github.com/redgreat/zr_db_mcp_server.git
 cd zr_db_mcp_server
 ```
 
-2. **配置环境变量**
+2. 配置文件
 
 ```bash
-cp .env.example .env
-# 编辑.env文件，修改MASTER_KEY为你自己的密钥
+cp config/config.yml.example config/config.yml
+# 编辑 config/config.yml，至少修改 security.master_key、admin_database 访问参数
 ```
 
-3. **启动服务**
+3. 启动服务
 
 ```bash
 docker-compose up -d
 ```
 
-4. **检查服务状态**
+4. 检查服务状态
 
 ```bash
 docker-compose ps
 docker-compose logs -f
 ```
 
-5. **访问管理界面**
+5. 访问管理界面
 
-打开浏览器访问: `http://localhost:3000/admin`
+浏览器访问: http://localhost:3000/admin
 
 ### 手动部署
-
-如果不使用Docker，可以手动部署：
 
 ```bash
 # 安装依赖
 pip install -r requirements.txt
 
-# 初始化数据库
+# 配置文件
+cp config/config.yml.example config/config.yml
+# 编辑 config/config.yml，设置 master_key 和 PostgreSQL 管理库
+
+# 初始化管理数据库（PostgreSQL）
 python scripts/init_admin_db.py
 
 # 启动服务
 uvicorn src.server:app --host 0.0.0.0 --port 3000
 ```
 
-## 配置说明
+## 配置说明（YAML）
 
-### 环境变量
+配置文件路径：config/config.yml（示例参见 config/config.yml.example）
 
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `HOST` | 服务监听地址 | `0.0.0.0` |
-| `PORT` | 服务端口 | `3000` |
-| `MASTER_KEY` | 主密钥（用于加密数据库密码） | `change_this_master_key` |
-| `LOG_DIR` | 日志目录 | `logs` |
-| `ADMIN_DB_PATH` | 管理数据库路径 | `admin/admin.db` |
-| `DB_POOL_MIN_SIZE` | 连接池最小连接数 | `5` |
-| `DB_POOL_MAX_SIZE` | 连接池最大连接数 | `20` |
+关键项：
 
-**⚠️ 重要**: 生产环境请务必修改 `MASTER_KEY` 为随机生成的强密钥！
+- server：服务监听地址与端口
+- security：主密钥、JWT 密钥、会话超时
+- admin_database：PostgreSQL 管理库连接信息（用于存储连接、密钥、权限、审计日志等）
+- database：数据库连接池参数
+- logging：日志级别、目录、审计日志写入位置
 
-### 目录结构
+示例片段：
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 3000
+
+security:
+  master_key: change_this_master_key_in_production
+  jwt_secret: change_this_jwt_secret_in_production
+  session_timeout: 3600
+
+admin_database:
+  host: localhost
+  port: 5432
+  database: zr_db_mcp_admin
+  username: dbmcp_admin
+  password: change_this_password
+
+logging:
+  level: INFO
+  dir: logs
+  audit_to_database: true
+  audit_to_file: false
+```
+
+**重要**：生产环境必须使用强随机 master_key，并正确配置 PostgreSQL 管理库。
+
+## 目录结构
 
 ```
 zr_db_mcp_server/
 ├── config/              # 配置文件目录
-│   └── supervisord.conf # Supervisord配置
+│   └── supervisord.conf # Supervisord 配置
 ├── scripts/             # 脚本目录
-│   └── init_admin_db.py # 数据库初始化脚本
+│   └── init_admin_db.py # 管理库初始化脚本（PostgreSQL）
 ├── src/                 # 源代码目录
-│   ├── admin/          # 管理后台模块
-│   ├── db/             # 数据库操作模块
-│   ├── security/       # 安全模块
-│   ├── tools/          # 工具模块
-│   ├── config.py       # 配置加载
-│   ├── server.py       # 服务主文件
+│   ├── admin/           # 管理后台模块 (Web/API)
+│   ├── db/              # 数据库操作模块
+│   ├── security/        # 安全部分（IP 白名单、加密、拦截器等）
+│   ├── tools/           # 元数据与工具模块
+│   ├── mcp/             # MCP 协议与工具路由
+│   ├── config.py        # 配置加载（YAML）
+│   ├── server.py        # 服务主文件
 │   └── logging_utils.py # 日志工具
-├── data/               # 数据目录（挂载卷）
-├── logs/               # 日志目录（挂载卷）
-├── Dockerfile          # Docker镜像构建文件
-├── docker-compose.yml  # Docker Compose配置
-└── requirements.txt    # Python依赖
+├── data/                # 数据目录（挂载卷）
+├── logs/                # 日志目录（挂载卷）
+├── Dockerfile           # Docker 镜像构建
+├── docker-compose.yml   # Docker Compose 配置
+└── requirements.txt     # Python 依赖
 ```
 
-## 使用指南
+## 使用指南（连接级权限模型）
 
-### 1. 配置数据库实例
-
-通过管理API或Web界面添加数据库实例：
+### 1. 管理员登录并获取令牌
 
 ```bash
-curl -X POST http://localhost:3000/admin/instances \
+curl -X POST http://localhost:3000/admin/login \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "主数据库",
-    "host": "192.168.1.100",
-    "port": 3306,
-    "db_type": "mysql",
-    "description": "生产环境MySQL主库"
-  }'
+  -d '{ "username": "admin", "password": "admin123" }'
+# 返回: { "token": "...", "user": { ... } }
 ```
 
-**支持的数据库类型**: `mysql`, `postgresql`
+> 后续所有 /admin/* 接口都需要在 Header 中携带 Authorization: Bearer <token>
 
-### 2. 配置数据库
-
-为实例添加数据库：
+### 2. 创建数据库连接
 
 ```bash
-curl -X POST http://localhost:3000/admin/databases \
-  -d 'instance_id=1&name=myapp_db'
+curl -X POST http://localhost:3000/admin/connections \
+  -H "Authorization: Bearer <token>" \
+  -d 'name=主库&host=192.168.1.100&port=3306&db_type=mysql&database=myapp_db&username=db_user&password=SecureP@ss&description=生产环境主库'
 ```
 
-### 3. 配置账号
+支持的 db_type：mysql、postgresql。密码会使用 master_key 加密存储。
 
-为实例添加数据库账号（密码加密存储）：
-
-```bash
-curl -X POST http://localhost:3000/admin/accounts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "instance_id": 1,
-    "username": "readonly_user",
-    "password": "SecureP@ssw0rd",
-    "plugin": ""
-  }'
-```
-
-### 4. 创建访问密钥
-
-生成客户端访问密钥：
+### 3. 创建访问密钥
 
 ```bash
 curl -X POST http://localhost:3000/admin/keys \
-  -d 'ak=api_key_001&description=客户端A的访问密钥&enabled=true'
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "ak": "api_key_001", "description": "客户端A", "enabled": true }'
 ```
 
-### 5. 配置权限
-
-为访问密钥分配权限（指定可以访问的实例/数据库/账号）：
+### 4. 为密钥授权连接与权限级别
 
 ```bash
 curl -X POST http://localhost:3000/admin/permissions \
-  -d 'key_id=1&instance_id=1&database_id=1&account_id=1&select_only=true'
+  -H "Authorization: Bearer <token>" \
+  -d 'key_id=1&connection_id=1&select_only=true&allow_ddl=false'
 ```
 
-### 6. 执行查询
+- select_only=true：仅允许只读查询（SELECT/SHOW/DESCRIBE/EXPLAIN）
+- allow_ddl=true：允许 DDL（CREATE/DROP/ALTER/TRUNCATE/RENAME）
 
-客户端使用访问密钥查询数据：
+### 5. （可选）配置 IP 白名单
+
+```bash
+curl -X POST http://localhost:3000/admin/whitelist \
+  -H "Authorization: Bearer <token>" \
+  -d 'key_id=1&cidr=203.0.113.100&description=办公室固定IP'
+```
+
+### 6. 客户端执行查询
 
 ```bash
 curl -X POST http://localhost:3000/query \
   -H "x-access-key: api_key_001" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "instance_id": 1,
-    "database_id": 1,
-    "account_id": 1,
-    "sql": "SELECT * FROM users LIMIT 10"
-  }'
+  -d 'connection_id=1&sql=SELECT * FROM users LIMIT 10'
 ```
 
-## API文档
+### 7. 使用 SSE 流式查询
 
-### 查询接口
+```bash
+curl -N "http://localhost:3000/sse/query?connection_id=1&sql=SELECT%20COUNT(*)%20FROM%20users" \
+  -H "x-access-key: api_key_001"
+```
 
-#### POST /query
-执行SQL查询
+### 8. 集成 TRAE（标准 MCP 协议）
 
-**Headers**:
-- `x-access-key`: 访问密钥
+TRAE MCP 配置示例（Windows）：%APPDATA%/TRAE/mcp_config.json
 
-**Body**:
 ```json
 {
-  "instance_id": 1,
-  "database_id": 1,
-  "account_id": 1,
-  "sql": "SELECT * FROM table_name"
+  "mcpServers": {
+    "db-mcp-local": {
+      "url": "http://localhost:3000/mcp/sse",
+      "transport": "sse",
+      "headers": {
+        "X-Access-Key": "api_key_001"
+      }
+    }
+  }
 }
 ```
 
-#### GET /sse/query
-SSE流式查询
+调用工具示例（JSON-RPC 请求到 http://localhost:3000/mcp/message）：
 
-**Headers**:
-- `x-access-key`: 访问密钥
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "method": "tools/call",
+  "params": {
+    "name": "list_connections",
+    "arguments": { "search": "" }
+  }
+}
+```
 
-**Query Parameters**:
-- `instance_id`: 实例ID
-- `database_id`: 数据库ID
-- `account_id`: 账号ID
-- `sql`: SQL语句
+返回中 connections 的数量即为当前密钥可访问的数据库连接数。
 
-### 元数据接口
+## API 文档（摘要）
 
-#### GET /metadata/tables
-获取数据库表列表
+### 查询与元数据
 
-#### GET /metadata/table_info
-获取表结构信息
-
-**Query Parameters**:
-- `table`: 表名
+- POST /query（Headers: x-access-key；Body: connection_id, sql）
+- GET /sse/query（Headers: x-access-key；Query: connection_id, sql）
+- GET /metadata/tables（Headers: x-access-key；Query: connection_id）
+- GET /metadata/table_info（Headers: x-access-key；Query: connection_id, table）
 
 ### 事务接口
 
-#### POST /transactions/begin
-开启事务
+- POST /transaction/begin（Body: connection_id, txn_id, timeout?）
+- POST /transactions/commit（Body: txn_id）
+- POST /transactions/rollback（Body: txn_id）
+- GET /transaction/status（Query: txn_id）
+- GET /transaction/list
+- POST /transaction/cleanup
 
-#### POST /transactions/commit
-提交事务
+### 管理接口（需 Authorization）
 
-#### POST /transactions/rollback
-回滚事务
-
-#### GET /transactions/status
-查询事务状态
-
-### 管理接口
-
-- `GET /admin/keys` - 列出访问密钥
-- `POST /admin/keys` - 创建访问密钥
-- `GET /admin/instances` - 列出实例
-- `POST /admin/instances` - 创建实例
-- `GET /admin/databases` - 列出数据库
-- `POST /admin/databases` - 创建数据库
-- `GET /admin/accounts` - 列出账号
-- `POST /admin/accounts` - 创建账号
-- `GET /admin/monitor/logs` - 查看日志摘要
+- POST /admin/login、POST /admin/logout、GET /admin/me
+- GET/POST/PATCH/DELETE /admin/keys
+- GET/POST/DELETE /admin/connections
+- GET/POST/DELETE /admin/permissions
+- GET/POST/DELETE /admin/whitelist
+- GET /admin/audit/logs
+- GET /admin（Web 管理界面）
 
 ## 安全特性
 
-### SQL注入防护
-
-系统内置多层SQL安全检查：
-
-1. **黑名单检测**: 检测危险SQL关键字（DROP, ALTER, DELETE等）
-2. **注入模式检测**: 识别常见注入模式（UNION, OR 1=1等）
-3. **风险评分**: 对SQL进行风险评分，超过阈值拒绝执行
-
-### 密码加密
-
-所有数据库密码使用Fernet对称加密，基于`MASTER_KEY`派生的固定密钥加密存储。
-
-### 访问控制
-
-三级权限控制：
-1. **实例级**: 控制能访问哪些数据库服务器
-2. **数据库级**: 控制能访问实例上的哪些数据库
-3. **账号级**: 控制使用哪个数据库账号连接
-
-### 审计日志
-
-所有查询操作都会记录到审计日志，包括：
-- 访问密钥
-- 执行的SQL语句
-- 实例/数据库/账号信息
-- 返回行数
-- 执行时间
+- SQL 风险拦截：黑名单关键字、注入模式、风险评分
+- 密码加密：使用 master_key（Fernet）加密存储数据库密码
+- 权限控制：select_only 与 allow_ddl 两级控制
+- IP 白名单：绑定到访问密钥，来源限制
+- 数据脱敏：查询结果敏感信息脱敏
+- 审计日志：记录访问密钥、客户端 IP、SQL、行数、耗时与状态
 
 ## 运维指南
 
 ### 查看日志
 
 ```bash
-# 查看所有日志
 docker-compose logs
-
-# 查看服务日志
 docker exec db_mcp_server cat /var/log/db_mcp_server/web.out.log
-
-# 查看审计日志
 docker exec db_mcp_server cat /var/log/db_mcp_server/audit.log
 ```
 
-### 备份数据
-
-```bash
-# 备份管理数据库
-docker cp db_mcp_server:/data/admin/admin.db ./backup/admin.db.backup
-
-# 备份日志
-tar -czf logs-backup.tar.gz logs/
-```
-
-### 重启服务
+### 重启与更新
 
 ```bash
 docker-compose restart
+git pull && docker-compose up -d --build
 ```
-
-### 更新服务
-
-```bash
-# 拉取最新代码
-git pull
-
-# 重新构建并启动
-docker-compose up -d --build
-```
-
-## 故障排查
-
-### 服务无法启动
-
-1. 检查端口占用: `netstat -nltp | grep 3000`
-2. 查看错误日志: `docker-compose logs`
-3. 确认环境变量配置正确
-
-### 查询报错"缺少访问密钥"
-
-确认请求Header中包含 `x-access-key` 且密钥已创建并启用
-
-### 查询报错"风险SQL"
-
-SQL被安全检查拦截，检查SQL语句是否包含危险操作
-
-### 连接数据库失败
-
-1. 确认实例配置正确（host、port、db_type）
-2. 确认账号密码正确
-3. 确认网络连通性
-4. 检查数据库是否允许服务器IP连接
 
 ## 开发指南
-
-### 本地开发
 
 ```bash
 # 创建虚拟环境
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+venv\Scripts\activate  # Windows
 
 # 安装依赖
 pip install -r requirements.txt
 
-# 初始化数据库
+# 初始化管理数据库
 python scripts/init_admin_db.py
 
 # 启动开发服务器
 uvicorn src.server:app --reload --host 0.0.0.0 --port 3000
 ```
 
-### 运行测试
+## 故障排查
 
-```bash
-pytest tests/
-```
+- 缺少访问密钥：检查请求 Header x-access-key
+- 风险 SQL 拦截：检查语句是否包含危险操作或注入模式
+- 权限不足：检查 select_only/allow_ddl 授权是否满足
+- 连接失败：核对 host、port、db_type、用户与密码；检查网络与数据库白名单
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE)
+本项目采用 MIT License
 
 ## 技术支持
 
-如有问题请提交Issue或联系技术支持团队。
+如有问题请提交 Issue 或联系技术支持团队。
