@@ -55,12 +55,19 @@ def create_app() -> FastAPI:
     # 初始化数据脱敏器
     data_masker = DataMasker(enabled=True)
     
-    # 挂载MCP路由
+    # 挂载MCP路由（HTTP API 方式）
     from .mcp import build_mcp_router
     mcp_router = build_mcp_router(
         cfg, qp, admin_engine, audit_logger, ip_checker, data_masker
     )
     app.include_router(mcp_router)
+    
+    # 挂载标准 MCP 协议路由（SSE 方式）
+    from .mcp.standard_protocol import build_standard_mcp_router
+    standard_mcp_router = build_standard_mcp_router(
+        cfg, qp, admin_engine, audit_logger, ip_checker, data_masker
+    )
+    app.include_router(standard_mcp_router)
 
     @app.post("/query")
     def query(sql: str, connection_id: int, 
@@ -81,7 +88,21 @@ def create_app() -> FastAPI:
                         detail=f"IP {client_ip} 不在访问密钥 {x_access_key} 的白名单中，访问被拒绝"
                     )
             
-            _check_permission(cfg, x_access_key, connection_id)
+            # 检查权限并获取权限详情
+            perm = _check_permission(cfg, x_access_key, connection_id)
+            
+            # 检查 SQL 类型并验证权限
+            sql_upper = sql.strip().upper()
+            is_select = sql_upper.startswith('SELECT') or sql_upper.startswith('SHOW') or sql_upper.startswith('DESCRIBE') or sql_upper.startswith('EXPLAIN')
+            is_ddl = any(sql_upper.startswith(kw) for kw in ['CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME'])
+            is_dml = any(sql_upper.startswith(kw) for kw in ['INSERT', 'UPDATE', 'DELETE'])
+            
+            # 权限验证
+            if perm['select_only'] and not is_select:
+                raise HTTPException(status_code=403, detail="该连接仅允许 SELECT 查询，不允许执行修改操作")
+            
+            if is_ddl and not perm['allow_ddl']:
+                raise HTTPException(status_code=403, detail="该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
             
             sec = intercept_sql(sql, {"key": x_access_key})
             if not sec["safe"]:
@@ -124,53 +145,135 @@ def create_app() -> FastAPI:
             raise
 
     @app.get("/sse/query")
-    def sse_query(sql: str, connection_id: int, x_access_key: str = Header(default="")):
+    def sse_query(sql: str, connection_id: int, request: Request, x_access_key: str = Header(default="")):
         """通过SSE流式返回查询结果"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
-        _check_permission(cfg, x_access_key, connection_id)
+        
+        # 检查权限并获取权限详情
+        perm = _check_permission(cfg, x_access_key, connection_id)
+        
+        # 检查 SQL 类型并验证权限
+        sql_upper = sql.strip().upper()
+        is_select = sql_upper.startswith('SELECT') or sql_upper.startswith('SHOW') or sql_upper.startswith('DESCRIBE') or sql_upper.startswith('EXPLAIN')
+        is_ddl = any(sql_upper.startswith(kw) for kw in ['CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME'])
+        
+        if perm['select_only'] and not is_select:
+            raise HTTPException(status_code=403, detail="该连接仅允许 SELECT 查询，不允许执行修改操作")
+        
+        if is_ddl and not perm['allow_ddl']:
+            raise HTTPException(status_code=403, detail="该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
+        
         sec = intercept_sql(sql, {"key": x_access_key})
         if not sec["safe"]:
             raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
         eng, _, _ = _resolve_engine(cfg, qp, connection_id)
+        
+        client_ip = request.client.host if request.client else None
 
         def event_stream():
             """生成SSE数据流"""
+            start_time = time.time()
             try:
                 rows = qp.run_query(eng, sql)
+                duration_ms = int((time.time() - start_time) * 1000)
+                
+                # 记录审计日志
+                audit_logger.log(
+                    operation="sse_query",
+                    status="success",
+                    access_key=x_access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    sql_text=sql,
+                    rows_affected=len(rows),
+                    duration_ms=duration_ms
+                )
+                
                 yield f"data: {len(rows)}\n\n"
                 for r in rows:
                     yield f"data: {r}\n\n"
             except Exception as e:
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation="sse_query",
+                    status="error",
+                    access_key=x_access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    sql_text=sql,
+                    duration_ms=duration_ms,
+                    error_message=str(e)
+                )
                 yield f"event: error\ndata: {str(e)}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.get("/metadata/tables")
-    def metadata_tables(connection_id: int, x_access_key: str = Header(default="")):
+    def metadata_tables(connection_id: int, request: Request, x_access_key: str = Header(default="")):
         """返回数据库表列表"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
+        
+        start_time = time.time()
+        client_ip = request.client.host if request.client else None
+        
         _check_permission(cfg, x_access_key, connection_id)
         eng, db_name, db_type = _resolve_engine(cfg, qp, connection_id)
         from .tools.db_metadata_tool import list_tables
-        return {"items": list_tables(eng, db_name, db_type)}
+        tables = list_tables(eng, db_name, db_type)
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log(
+            operation="metadata_tables",
+            status="success",
+            access_key=x_access_key,
+            client_ip=client_ip,
+            connection_id=connection_id,
+            duration_ms=duration_ms,
+            metadata={"database": db_name, "count": len(tables)}
+        )
+        
+        return {"items": tables}
 
     @app.get("/metadata/table_info")
-    def metadata_table_info(connection_id: int, table: str, x_access_key: str = Header(default="")):
+    def metadata_table_info(connection_id: int, table: str, request: Request, x_access_key: str = Header(default="")):
         """返回表结构信息"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
+            
+        start_time = time.time()
+        client_ip = request.client.host if request.client else None
+        
         _check_permission(cfg, x_access_key, connection_id)
         eng, db_name, db_type = _resolve_engine(cfg, qp, connection_id)
         from .tools.db_metadata_tool import table_info
-        return table_info(eng, db_name, table, db_type)
+        info = table_info(eng, db_name, table, db_type)
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log(
+            operation="metadata_table_info",
+            status="success",
+            access_key=x_access_key,
+            client_ip=client_ip,
+            connection_id=connection_id,
+            duration_ms=duration_ms,
+            metadata={"table": table}
+        )
+        
+        return info
 
     @app.post("/transaction/begin")
     def txn_begin(connection_id: int, txn_id: str, 
                   timeout: Optional[int] = None, x_access_key: str = Header(default="")):
         """开启事务"""
-        _check_permission(cfg, x_access_key, connection_id)
+        # 检查权限并获取权限详情
+        perm = _check_permission(cfg, x_access_key, connection_id)
+        
+        # 只读连接不允许开启事务
+        if perm['select_only']:
+            raise HTTPException(status_code=403, detail="该连接为只读模式，不允许开启事务")
+        
         eng, _, _ = _resolve_engine(cfg, qp, connection_id)
         qp.begin_transaction(eng, txn_id, timeout=timeout)
         logger.info(f"事务开启 txn={txn_id} timeout={timeout or 300}s")
@@ -255,5 +358,11 @@ def _check_permission(cfg: Config, ak: str, connection_id: int):
         
         if not p:
             raise HTTPException(status_code=403, detail="该密钥无权访问此数据库连接")
+        
+        # 返回权限详情
+        return {
+            "select_only": p["select_only"],
+            "allow_ddl": p.get("allow_ddl", False)
+        }
 
 app = create_app()

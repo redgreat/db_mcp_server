@@ -194,11 +194,12 @@ async function loadKeys() {
     const tbody = document.getElementById('keys-table-body');
     if (!tbody) return;
     try {
-        // 同时获取密钥、连接、权限三表数据
-        const [keysRes, connsRes, permsRes] = await Promise.all([
+        // 同时获取密钥、连接、权限、白名单四表数据
+        const [keysRes, connsRes, permsRes, whitelistRes] = await Promise.all([
             apiCall('/admin/keys'),
             apiCall('/admin/connections'),
-            apiCall('/admin/permissions')
+            apiCall('/admin/permissions'),
+            apiCall('/admin/whitelist')
         ]);
 
         const connsMap = Object.fromEntries(connsRes.items.map(c => [c.id, c.name]));
@@ -206,10 +207,33 @@ async function loadKeys() {
         tbody.innerHTML = keysRes.items.map(key => {
             // 找出这个key对应的所有权限
             const myPerms = permsRes.items.filter(p => p.key_id === key.id);
-            const permHtml = myPerms.map(p => `
+            const permHtml = myPerms.map(p => {
+                let permText = connsMap[p.connection_id] || '已移除';
+                let permBadges = [];
+
+                if (p.select_only) {
+                    permBadges.push('只读');
+                } else {
+                    permBadges.push('读写');
+                    if (p.allow_ddl) {
+                        permBadges.push('DDL');
+                    }
+                }
+
+                return `
+                    <div class="tag-item">
+                        <span>${permText} (${permBadges.join(' + ')})</span>
+                        <span class="remove-icon" onclick="deletePermission(${p.id})">&times;</span>
+                    </div>
+                `;
+            }).join('');
+
+            // 找出这个key对应的所有白名单
+            const myWhitelist = whitelistRes.items.filter(w => w.key_id === key.id);
+            const whitelistHtml = myWhitelist.map(w => `
                 <div class="tag-item">
-                    <span>${connsMap[p.connection_id] || '已移除'} (${p.select_only ? '只读' : '读写'})</span>
-                    <span class="remove-icon" onclick="deletePermission(${p.id})">&times;</span>
+                    <span>${w.cidr}${w.description ? ' (' + w.description + ')' : ''}</span>
+                    <span class="remove-icon" onclick="deleteWhitelist(${w.id})">&times;</span>
                 </div>
             `).join('');
 
@@ -218,21 +242,37 @@ async function loadKeys() {
                     <td>${key.id}</td>
                     <td><code>${key.ak}</code></td>
                     <td>${key.description || '-'}</td>
-                    <td>${key.enabled ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-danger">禁用</span>'}</td>
+                    <td>
+                        <span class="badge ${key.enabled ? 'badge-success' : 'badge-danger'}" 
+                              style="cursor: pointer;" 
+                              onclick="toggleKeyStatus(${key.id}, ${!key.enabled})"
+                              title="点击切换状态">
+                            ${key.enabled ? '✓ 启用' : '✗ 禁用'}
+                        </span>
+                    </td>
                     <td class="permissions-cell">
                         <div class="tag-container">${permHtml}</div>
                         <button class="btn btn-xs btn-outline" onclick="showAddPermissionModal(${key.id})">+ 授权连接</button>
                     </td>
+                    <td class="permissions-cell">
+                        <div class="tag-container">${whitelistHtml}</div>
+                        <button class="btn btn-xs btn-outline" onclick="showAddWhitelistModal(${key.id})">+ 添加IP</button>
+                    </td>
                     <td>${key.created_by || '-'}</td>
                     <td>${formatDate(key.created_at)}</td>
                     <td>
+                        <button class="btn btn-sm ${key.enabled ? 'btn-outline' : 'btn-success'}" 
+                                onclick="toggleKeyStatus(${key.id}, ${!key.enabled})" 
+                                style="margin-right: 4px;">
+                            ${key.enabled ? '禁用' : '启用'}
+                        </button>
                         <button class="btn btn-sm btn-danger" onclick="deleteKey(${key.id})">删除</button>
                     </td>
                 </tr>
             `;
         }).join('');
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="8">加载失败: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9">加载失败: ${error.message}</td></tr>`;
     }
 }
 
@@ -267,7 +307,19 @@ async function deleteKey(id) {
     }
 }
 
-// 3. 关联权限弹窗（支持多选）
+async function toggleKeyStatus(id, enabled) {
+    try {
+        await apiCall(`/admin/keys/${id}/toggle`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled })
+        });
+        loadKeys();
+    } catch (error) {
+        alert('状态切换失败: ' + error.message);
+    }
+}
+
+// 3. 关联权限弹窗（为每个连接单独配置权限）
 async function showAddPermissionModal(keyId) {
     const connsRes = await apiCall('/admin/connections');
     const permsRes = await apiCall('/admin/permissions');
@@ -277,52 +329,92 @@ async function showAddPermissionModal(keyId) {
         .filter(p => p.key_id === keyId)
         .map(p => p.connection_id);
 
-    document.getElementById('modal-title').textContent = '为密钥分配权限（可多选）';
+    // 过滤掉已授权的连接
+    const availableConns = connsRes.items.filter(c => !existingConnIds.includes(c.id));
+
+    document.getElementById('modal-title').textContent = '为密钥分配权限';
     document.getElementById('modal-body').innerHTML = `
         <form id="perm-form">
             <div class="form-group">
-                <label>选择数据库连接（可多选）</label>
-                <div style="max-height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;">
-                    ${connsRes.items.map(c => {
-        const isExisting = existingConnIds.includes(c.id);
-        return `
+                <label>选择数据库连接并配置权限</label>
+                <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;" id="connections-list">
+                    ${availableConns.length > 0 ? availableConns.map(c => `
+                        <div style="margin-bottom: 12px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc;">
                             <div style="margin-bottom: 8px;">
-                                <label style="display: flex; align-items: center; cursor: pointer;">
-                                    <input type="checkbox" name="connection_ids" value="${c.id}" 
-                                           ${isExisting ? 'checked disabled' : ''} 
-                                           style="margin-right: 8px;">
-                                    <span style="${isExisting ? 'color: #94a3b8;' : ''}">${c.name} (${c.host}:${c.port}) ${isExisting ? '✓ 已授权' : ''}</span>
+                                <label style="display: flex; align-items: center; cursor: pointer; font-weight: 500;">
+                                    <input type="checkbox" class="conn-checkbox" value="${c.id}" style="margin-right: 8px;" onchange="togglePermOptions(${c.id})">
+                                    <div>
+                                        <div>${c.name}</div>
+                                        <div style="font-size: 12px; color: #64748b; font-weight: normal;">${c.host}:${c.port} / ${c.database}</div>
+                                    </div>
                                 </label>
                             </div>
-                        `;
-    }).join('')}
+                            <div id="perm-options-${c.id}" style="display: none; margin-left: 24px; padding-left: 12px; border-left: 2px solid #e2e8f0;">
+                                <label style="display: block; margin-bottom: 4px; font-size: 13px;">
+                                    <input type="radio" name="perm-type-${c.id}" value="readonly" checked style="margin-right: 6px;">
+                                    只读 (仅 SELECT 查询)
+                                </label>
+                                <label style="display: block; margin-bottom: 4px; font-size: 13px;">
+                                    <input type="radio" name="perm-type-${c.id}" value="readwrite" style="margin-right: 6px;">
+                                    读写 (SELECT + INSERT/UPDATE/DELETE)
+                                </label>
+                                <label style="display: block; font-size: 13px;">
+                                    <input type="radio" name="perm-type-${c.id}" value="full" style="margin-right: 6px;">
+                                    完全权限 (包括 DDL: CREATE/DROP/ALTER)
+                                </label>
+                            </div>
+                        </div>
+                    `).join('') : '<div style="text-align: center; padding: 20px; color: #64748b;">所有连接都已授权</div>'}
                 </div>
             </div>
-            <div class="form-group">
-                <label><input type="checkbox" name="select_only" checked> 只读模式 (仅限查询)</label>
-            </div>
-            <button type="submit" class="btn btn-primary">确认授权</button>
+            ${availableConns.length > 0 ? '<button type="submit" class="btn btn-primary">确认授权</button>' : ''}
         </form>
     `;
 
+    // 切换权限选项显示
+    window.togglePermOptions = (connId) => {
+        const checkbox = document.querySelector(`input.conn-checkbox[value="${connId}"]`);
+        const options = document.getElementById(`perm-options-${connId}`);
+        if (checkbox.checked) {
+            options.style.display = 'block';
+        } else {
+            options.style.display = 'none';
+        }
+    };
+
     document.getElementById('perm-form').onsubmit = async (e) => {
         e.preventDefault();
-        const fd = new FormData(e.target);
-        const selectedIds = fd.getAll('connection_ids');
-        const selectOnly = fd.get('select_only') === 'on';
 
-        if (selectedIds.length === 0) {
+        // 获取所有选中的连接
+        const selectedCheckboxes = document.querySelectorAll('input.conn-checkbox:checked');
+
+        if (selectedCheckboxes.length === 0) {
             alert('请至少选择一个连接');
             return;
         }
 
         try {
-            // 批量创建权限
-            for (const connId of selectedIds) {
+            // 为每个选中的连接创建权限
+            for (const checkbox of selectedCheckboxes) {
+                const connId = checkbox.value;
+                const permType = document.querySelector(`input[name="perm-type-${connId}"]:checked`).value;
+
+                let selectOnly = true;
+                let allowDdl = false;
+
+                if (permType === 'readwrite') {
+                    selectOnly = false;
+                    allowDdl = false;
+                } else if (permType === 'full') {
+                    selectOnly = false;
+                    allowDdl = true;
+                }
+
                 const params = new URLSearchParams({
                     key_id: keyId,
                     connection_id: connId,
-                    select_only: selectOnly
+                    select_only: selectOnly,
+                    allow_ddl: allowDdl
                 });
                 await apiCall('/admin/permissions?' + params, { method: 'POST' });
             }
@@ -338,6 +430,53 @@ async function showAddPermissionModal(keyId) {
 async function deletePermission(id) {
     if (confirm('确认移除此授权连接？')) {
         await apiCall(`/admin/permissions/${id}`, { method: 'DELETE' });
+        loadKeys();
+    }
+}
+
+// 白名单管理
+async function showAddWhitelistModal(keyId) {
+    document.getElementById('modal-title').textContent = '添加 IP 白名单';
+    document.getElementById('modal-body').innerHTML = `
+        <form id="whitelist-form">
+            <div class="form-group">
+                <label>IP 地址或 CIDR</label>
+                <input type="text" name="cidr" required placeholder="如：192.168.1.100 或 192.168.1.0/24">
+                <small style="color: #64748b; display: block; margin-top: 4px;">
+                    支持单个 IP 或 CIDR 格式。0.0.0.0/0 表示允许所有 IP（不推荐）
+                </small>
+            </div>
+            <div class="form-group">
+                <label>描述（可选）</label>
+                <input type="text" name="description" placeholder="如：办公室网络">
+            </div>
+            <button type="submit" class="btn btn-primary">添加</button>
+        </form>
+    `;
+
+    document.getElementById('whitelist-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const params = new URLSearchParams({
+            key_id: keyId,
+            cidr: fd.get('cidr'),
+            description: fd.get('description') || ''
+        });
+
+        try {
+            await apiCall('/admin/whitelist?' + params, { method: 'POST' });
+            closeModal();
+            loadKeys();
+        } catch (error) {
+            alert('添加失败: ' + error.message);
+        }
+    };
+    openModal();
+}
+
+async function deleteWhitelist(id) {
+    if (confirm('确认删除此 IP 白名单规则？')) {
+        await apiCall(`/admin/whitelist/${id}`, { method: 'DELETE' });
         loadKeys();
     }
 }

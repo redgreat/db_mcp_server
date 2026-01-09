@@ -24,25 +24,88 @@ class MCPTool:
 # 定义所有可用的MCP工具
 MCP_TOOLS = [
     MCPTool(
-        name="list_tables",
-        description="列出指定数据库的所有表",
+        name="list_connections",
+        description="列出当前用户有权访问的所有数据库连接",
         input_schema={
             "type": "object",
             "properties": {
-                "instance_id": {
+                "search": {
+                    "type": "string",
+                    "description": "可选的搜索关键词，按连接名称过滤"
+                }
+            }
+        }
+    ),
+
+    MCPTool(
+        name="list_databases",
+        description="列出指定连接中的所有数据库",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {
                     "type": "integer",
-                    "description": "数据库实例ID"
-                },
-                "database_id": {
-                    "type": "integer",
-                    "description": "数据库ID"
-                },
-                "account_id": {
-                    "type": "integer",
-                    "description": "账号ID"
+                    "description": "数据库连接 ID"
                 }
             },
-            "required": ["instance_id", "database_id", "account_id"]
+            "required": ["connection_id"]
+        }
+    ),
+
+    MCPTool(
+        name="list_tables",
+        description="列出指定数据库中的所有表",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "type": "integer",
+                    "description": "数据库连接 ID"
+                },
+                "database": {
+                    "type": "string",
+                    "description": "数据库名称（可选，如果不提供则使用连接默认数据库）"
+                }
+            },
+            "required": ["connection_id"]
+        }
+    ),
+
+    MCPTool(
+        name="list_views",
+        description="列出指定数据库中的所有视图",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "type": "integer",
+                    "description": "数据库连接 ID"
+                },
+                "database": {
+                    "type": "string",
+                    "description": "数据库名称（可选，如果不提供则使用连接默认数据库）"
+                }
+            },
+            "required": ["connection_id"]
+        }
+    ),
+
+    MCPTool(
+        name="list_procedures",
+        description="列出指定数据库中的所有存储过程",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "type": "integer",
+                    "description": "数据库连接 ID"
+                },
+                "database": {
+                    "type": "string",
+                    "description": "数据库名称（可选，如果不提供则使用连接默认数据库）"
+                }
+            },
+            "required": ["connection_id"]
         }
     ),
     
@@ -52,24 +115,20 @@ MCP_TOOLS = [
         input_schema={
             "type": "object",
             "properties": {
-                "instance_id": {
+                "connection_id": {
                     "type": "integer",
-                    "description": "数据库实例ID"
-                },
-                "database_id": {
-                    "type": "integer",
-                    "description": "数据库ID"
-                },
-                "account_id": {
-                    "type": "integer",
-                    "description": "账号ID"
+                    "description": "数据库连接 ID"
                 },
                 "table": {
                     "type": "string",
                     "description": "表名"
+                },
+                "database": {
+                    "type": "string",
+                    "description": "数据库名称（可选）"
                 }
             },
-            "required": ["instance_id", "database_id", "account_id", "table"]
+            "required": ["connection_id", "table"]
         }
     ),
     
@@ -79,24 +138,16 @@ MCP_TOOLS = [
         input_schema={
             "type": "object",
             "properties": {
-                "instance_id": {
+                "connection_id": {
                     "type": "integer",
-                    "description": "数据库实例ID"
-                },
-                "database_id": {
-                    "type": "integer",
-                    "description": "数据库ID"
-                },
-                "account_id": {
-                    "type": "integer",
-                    "description": "账号ID"
+                    "description": "数据库连接 ID"
                 },
                 "sql": {
                     "type": "string",
                     "description": "SELECT查询语句"
                 }
             },
-            "required": ["instance_id", "database_id", "account_id", "sql"]
+            "required": ["connection_id", "sql"]
         }
     ),
     
@@ -106,24 +157,16 @@ MCP_TOOLS = [
         input_schema={
             "type": "object",
             "properties": {
-                "instance_id": {
+                "connection_id": {
                     "type": "integer",
-                    "description": "数据库实例ID"
-                },
-                "database_id": {
-                    "type": "integer",
-                    "description": "数据库ID"
-                },
-                "account_id": {
-                    "type": "integer",
-                    "description": "账号ID"
+                    "description": "数据库连接 ID"
                 },
                 "sql": {
                     "type": "string",
                     "description": "SQL语句"
                 }
             },
-            "required": ["instance_id", "database_id", "account_id", "sql"]
+            "required": ["connection_id", "sql"]
         }
     ),
 ]

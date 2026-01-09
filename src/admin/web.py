@@ -139,6 +139,46 @@ def build_admin_router(cfg: Config):
         logger.info(f"创建访问密钥: {req.ak} by {user_data['username']}")
         return {"ok": True}
     
+    @router.patch("/admin/keys/{key_id}/toggle")
+    async def toggle_key_status(
+        key_id: int,
+        request: Request,
+        authorization: str = Header(None)
+    ):
+        """切换访问密钥状态（需要登录）"""
+        user_data = auth_service.get_current_user(authorization)
+        
+        # 从请求体获取 enabled 参数
+        body = await request.json()
+        enabled = body.get('enabled', True)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        keys = Table("access_keys", meta, autoload_with=engine)
+        with Session(engine) as s:
+            s.execute(
+                update(keys)
+                .where(keys.c.id == key_id)
+                .values(enabled=enabled)
+            )
+            s.commit()
+        logger.info(f"切换密钥状态: id={key_id} enabled={enabled} by {user_data['username']}")
+        return {"ok": True}
+    
+    @router.delete("/admin/keys/{key_id}")
+    def delete_key(key_id: int, authorization: str = Header(None)):
+        """删除访问密钥（需要登录）"""
+        user_data = auth_service.get_current_user(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        keys = Table("access_keys", meta, autoload_with=engine)
+        with Session(engine) as s:
+            s.execute(delete(keys).where(keys.c.id == key_id))
+            s.commit()
+        logger.info(f"删除密钥: id={key_id} by {user_data['username']}")
+        return {"ok": True}
+    
     # ==================== 数据库连接管理 ====================
     
     @router.get("/admin/connections")
@@ -227,6 +267,7 @@ def build_admin_router(cfg: Config):
         key_id: int,
         connection_id: int,
         select_only: bool = True,
+        allow_ddl: bool = False,
         authorization: str = Header(None)
     ):
         """创建权限（关联到连接 ID）"""
@@ -239,10 +280,11 @@ def build_admin_router(cfg: Config):
             s.execute(insert(t).values(
                 key_id=key_id,
                 connection_id=connection_id,
-                select_only=select_only
+                select_only=select_only,
+                allow_ddl=allow_ddl
             ))
             s.commit()
-        logger.info(f"创建权限: key={key_id} conn={connection_id} by {user_data['username']}")
+        logger.info(f"创建权限: key={key_id} conn={connection_id} select_only={select_only} allow_ddl={allow_ddl} by {user_data['username']}")
         return {"ok": True}
     
     @router.delete("/admin/permissions/{perm_id}")
@@ -346,3 +388,4 @@ def build_admin_router(cfg: Config):
         return {"items": [dict(r) for r in rows]}
     
     return router
+

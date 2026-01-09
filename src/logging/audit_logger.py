@@ -26,9 +26,7 @@ class AuditLogger:
         status: str,
         access_key: Optional[str] = None,
         client_ip: Optional[str] = None,
-        instance_id: Optional[int] = None,
-        database_id: Optional[int] = None,
-        account_id: Optional[int] = None,
+        connection_id: Optional[int] = None,
         sql_text: Optional[str] = None,
         rows_affected: Optional[int] = None,
         duration_ms: Optional[int] = None,
@@ -42,9 +40,7 @@ class AuditLogger:
             status: 状态（success/error）
             access_key: 访问密钥
             client_ip: 客户端IP
-            instance_id: 实例ID
-            database_id: 数据库ID
-            account_id: 账号ID
+            connection_id: 数据库连接ID
             sql_text: SQL语句
             rows_affected: 影响行数
             duration_ms: 执行时长（毫秒）
@@ -58,9 +54,7 @@ class AuditLogger:
                         timestamp=datetime.utcnow(),
                         access_key=access_key,
                         client_ip=client_ip,
-                        instance_id=instance_id,
-                        database_id=database_id,
-                        account_id=account_id,
+                        connection_id=connection_id,
                         operation=operation,
                         sql_text=sql_text[:1000] if sql_text else None,  # 限制长度
                         rows_affected=rows_affected,

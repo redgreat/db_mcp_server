@@ -3,6 +3,26 @@ from sqlalchemy.engine import Engine
 from typing import List, Dict, Any
 
 
+def list_databases(eng: Engine, db_type: str = "mysql") -> List[str]:
+    """列出服务器上的所有数据库
+    
+    Args:
+        eng: 数据库引擎
+        db_type: 数据库类型 ('mysql' 或 'postgresql')
+    
+    Returns:
+        数据库名称列表
+    """
+    if db_type.lower() == "postgresql":
+        sql = "SELECT datname FROM pg_database WHERE datistemplate = false"
+    else:
+        sql = "SHOW DATABASES"
+        
+    with eng.connect() as conn:
+        rows = conn.execute(text(sql)).all()
+    return [r[0] for r in rows]
+
+
 def list_tables(eng: Engine, database: str, db_type: str = "mysql") -> List[str]:
     """列出数据库中的所有表
     
@@ -27,7 +47,58 @@ def list_tables(eng: Engine, database: str, db_type: str = "mysql") -> List[str]
             rows = conn.execute(text(sql), {"schema": schema}).all()
     else:
         # MySQL使用information_schema
-        sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=:db"
+        sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=:db AND TABLE_TYPE='BASE TABLE'"
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"db": database}).all()
+    return [r[0] for r in rows]
+
+
+def list_views(eng: Engine, database: str, db_type: str = "mysql") -> List[str]:
+    """列出数据库中的所有视图
+    
+    Args:
+        eng: 数据库引擎
+        database: 数据库名称
+        db_type: 数据库类型 ('mysql' 或 'postgresql')
+    
+    Returns:
+        视图名列表
+    """
+    if db_type.lower() == "postgresql":
+        sql = "SELECT viewname FROM pg_catalog.pg_views WHERE schemaname = :schema"
+        schema = "public" if database == "public" else database
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"schema": schema}).all()
+    else:
+        sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=:db AND TABLE_TYPE='VIEW'"
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"db": database}).all()
+    return [r[0] for r in rows]
+
+
+def list_procedures(eng: Engine, database: str, db_type: str = "mysql") -> List[str]:
+    """列出数据库中的所有存储过程
+    
+    Args:
+        eng: 数据库引擎
+        database: 数据库名称
+        db_type: 数据库类型 ('mysql' 或 'postgresql')
+    
+    Returns:
+        存储过程名列表
+    """
+    if db_type.lower() == "postgresql":
+        sql = """
+            SELECT p.proname
+            FROM pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = :schema
+        """
+        schema = "public" if database == "public" else database
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"schema": schema}).all()
+    else:
+        sql = "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=:db AND ROUTINE_TYPE='PROCEDURE'"
         with eng.connect() as conn:
             rows = conn.execute(text(sql), {"db": database}).all()
     return [r[0] for r in rows]

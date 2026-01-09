@@ -19,18 +19,14 @@ class MCPPermissionChecker:
     def check_permission(
         self,
         access_key: str,
-        instance_id: int,
-        database_id: int,
-        account_id: int,
+        connection_id: int,
         require_ddl: bool = False
     ) -> dict:
         """检查MCP调用权限
         
         Args:
             access_key: 访问密钥
-            instance_id: 实例ID
-            database_id: 数据库ID
-            account_id: 账号ID
+            connection_id: 数据库连接ID
             require_ddl: 是否需要DDL权限
             
         Returns:
@@ -58,9 +54,7 @@ class MCPPermissionChecker:
                 select(self.permissions).where(
                     and_(
                         self.permissions.c.key_id == key_id,
-                        self.permissions.c.instance_id == instance_id,
-                        self.permissions.c.database_id == database_id,
-                        self.permissions.c.account_id == account_id
+                        self.permissions.c.connection_id == connection_id
                     )
                 )
             ).mappings().first()
@@ -68,14 +62,14 @@ class MCPPermissionChecker:
             if not perm:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"访问密钥无权访问实例{instance_id}/数据库{database_id}/账号{account_id}"
+                    detail=f"访问密钥无权访问连接 ID {connection_id}"
                 )
             
             # 检查DDL权限
             if require_ddl and not perm['allow_ddl']:
                 raise HTTPException(
                     status_code=403,
-                    detail="该访问密钥无DDL权限，不能执行CREATE/DROP/ALTER等操作"
+                    detail="该访问密钥无 DDL 权限，不能执行 CREATE/DROP/ALTER 等操作"
                 )
             
             return dict(perm)

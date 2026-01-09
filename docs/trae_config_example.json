@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "db-mcp-local": {
+            "url": "http://localhost:3000/mcp/sse",
+            "transport": "sse",
+            "headers": {
+                "X-Access-Key": "mcp_key_01"
+            }
+        }
+    }
+}
