@@ -288,7 +288,7 @@ async def execute_mcp_tool(
 ) -> Any:
     """执行 MCP 工具"""
     import time
-    from sqlalchemy import Table, MetaData, select, text
+    from sqlalchemy import Table, MetaData, select, text, or_
     from sqlalchemy.orm import Session
     from ..security.secret import decrypt_text
     from ..security.interceptor import intercept_sql
@@ -319,7 +319,7 @@ async def execute_mcp_tool(
             
             stmt = select(
                 conns.c.id, 
-                conns.c.conn_name, 
+                conns.c.name.label("conn_name"), 
                 conns.c.db_type, 
                 conns.c.host, 
                 conns.c.database
@@ -330,7 +330,13 @@ async def execute_mcp_tool(
             )
             
             if search:
-                stmt = stmt.where(conns.c.conn_name.ilike(f"%{search}%"))
+                # 同时搜索名称和数据库类型
+                stmt = stmt.where(
+                    or_(
+                        conns.c.name.ilike(f"%{search}%"),
+                        conns.c.db_type.ilike(f"%{search}%")
+                    )
+                )
                 
             conn_rows = session.execute(stmt).mappings().all()
             result = {"connections": [dict(r) for r in conn_rows]}
@@ -344,7 +350,15 @@ async def execute_mcp_tool(
                 client_ip=client_ip,
                 duration_ms=duration_ms
             )
-            return result
+            # 返回符合 MCP 规范的标准格式
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(result, ensure_ascii=False)
+                    }
+                ]
+            }
 
     # 2. 其他工具都需要 connection_id
     if not connection_id:
@@ -501,7 +515,15 @@ async def execute_mcp_tool(
             duration_ms=duration_ms
         )
         
-        return result
+        # 返回符合 MCP 规范的标准格式
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(result, ensure_ascii=False)
+                }
+            ]
+        }
         
     except Exception as e:
         # 记录失败日志
@@ -516,5 +538,14 @@ async def execute_mcp_tool(
             duration_ms=duration_ms,
             error_message=str(e)
         )
-        raise
+        # 将错误信息包装成工具返回，而不是直接抛出协议异常，这样 AI 能够理解“为什么执行不成功”
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Error: {str(e)}"
+                }
+            ],
+            "isError": True
+        }
 

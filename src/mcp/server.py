@@ -17,6 +17,7 @@ from ..security.secret import decrypt_text
 from sqlalchemy import create_engine, Table, MetaData, select
 from sqlalchemy.orm import Session
 import time
+import json
 
 
 class MCPCallRequest(BaseModel):
@@ -175,7 +176,7 @@ def _execute_tool(
             
             stmt = select(
                 conns.c.id, 
-                conns.c.conn_name, 
+                conns.c.name.label("conn_name"), 
                 conns.c.db_type, 
                 conns.c.host, 
                 conns.c.database
@@ -185,90 +186,128 @@ def _execute_tool(
                 perms.c.key_id == key_row["id"]
             )
             
+            from sqlalchemy import or_
             if search:
-                stmt = stmt.where(conns.c.conn_name.ilike(f"%{search}%"))
+                # 同时对连接名称和数据库类型进行模糊匹配
+                stmt = stmt.where(
+                    or_(
+                        conns.c.name.ilike(f"%{search}%"),
+                        conns.c.db_type.ilike(f"%{search}%")
+                    )
+                )
                 
             conn_rows = session.execute(stmt).mappings().all()
-            return {"connections": [dict(r) for r in conn_rows]}
+            result = {"connections": [dict(r) for r in conn_rows]}
+            # 返回符合 MCP 规范的标准格式
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(result, ensure_ascii=False)
+                    }
+                ]
+            }
 
     # 2. 其他工具都需要 connection_id
     connection_id = args.get("connection_id")
-    if connection_id is None:
-        raise HTTPException(status_code=400, detail="缺少必需参数: connection_id")
+    try:
+        if connection_id is None:
+            raise Exception("缺少必需参数: connection_id")
 
-    if tool_name == "list_databases":
-        perm_checker.check_permission(access_key, connection_id)
-        eng, _, db_type = _get_engine(cfg, qp, connection_id)
-        databases = list_databases(eng, db_type)
-        return {"databases": databases}
+        if tool_name == "list_databases":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, _, db_type = _get_engine(cfg, qp, connection_id)
+            databases = list_databases(eng, db_type)
+            result = {"databases": databases}
 
-    elif tool_name == "list_tables":
-        perm_checker.check_permission(access_key, connection_id)
-        eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
-        database = args.get("database") or db_name
-        tables = list_tables(eng, database, db_type)
-        return {"database": database, "tables": tables}
+        elif tool_name == "list_tables":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            tables = list_tables(eng, database, db_type)
+            result = {"database": database, "tables": tables}
 
-    elif tool_name == "list_views":
-        perm_checker.check_permission(access_key, connection_id)
-        eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
-        database = args.get("database") or db_name
-        views = list_views(eng, database, db_type)
-        return {"database": database, "views": views}
+        elif tool_name == "list_views":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            views = list_views(eng, database, db_type)
+            result = {"database": database, "views": views}
 
-    elif tool_name == "list_procedures":
-        perm_checker.check_permission(access_key, connection_id)
-        eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
-        database = args.get("database") or db_name
-        procs = list_procedures(eng, database, db_type)
-        return {"database": database, "procedures": procs}
+        elif tool_name == "list_procedures":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            procs = list_procedures(eng, database, db_type)
+            result = {"database": database, "procedures": procs}
+        
+        elif tool_name == "describe_table":
+            perm_checker.check_permission(access_key, connection_id)
+            table_name = args.get("table")
+            if not table_name:
+                raise Exception("缺少参数: table")
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            info = table_info(eng, database, table_name, db_type)
+            result = {"database": database, "table": table_name, "columns": info["columns"]}
+        
+        elif tool_name == "execute_query":
+            perm_checker.check_permission(access_key, connection_id)
+            sql = args.get("sql")
+            if not sql:
+                raise Exception("缺少参数: sql")
+            sec = intercept_sql(sql, {"key": access_key})
+            if not sec["safe"]:
+                raise Exception(f"风险SQL 阈值:{sec['risk']}")
+            eng, _, _ = _get_engine(cfg, qp, connection_id)
+            rows = qp.run_query(eng, sql)
+            masked_rows = data_masker.mask_results(rows)
+            result = {"rows": masked_rows, "count": len(masked_rows)}
+        
+        elif tool_name == "execute_sql":
+            sql = args.get("sql")
+            if not sql:
+                raise Exception("缺少参数: sql")
+            require_ddl = perm_checker.is_ddl_sql(sql)
+            perm_checker.check_permission(access_key, connection_id, require_ddl=require_ddl)
+            sec = intercept_sql(sql, {"key": access_key})
+            if not sec["safe"]:
+                raise Exception(f"风险SQL 阈值:{sec['risk']}")
+            eng, _, _ = _get_engine(cfg, qp, connection_id)
+            from sqlalchemy import text
+            with eng.connect() as conn:
+                res_proxy = conn.execute(text(sql))
+                conn.commit()
+                try:
+                    rows = [dict(r._mapping) for r in res_proxy]
+                    masked_rows = data_masker.mask_results(rows)
+                    result = {"rows": masked_rows, "count": len(masked_rows)}
+                except:
+                    result = {"success": True, "message": "SQL执行成功"}
+        else:
+            raise Exception(f"未知工具: {tool_name}")
+
+        # 正常返回符合 MCP 规范的标准格式
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(result, ensure_ascii=False)
+                }
+            ]
+        }
     
-    elif tool_name == "describe_table":
-        perm_checker.check_permission(access_key, connection_id)
-        table_name = args.get("table")
-        if not table_name:
-            raise HTTPException(status_code=400, detail="缺少参数: table")
-        eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
-        database = args.get("database") or db_name
-        info = table_info(eng, database, table_name, db_type)
-        return {"database": database, "table": table_name, "columns": info["columns"]}
-    
-    elif tool_name == "execute_query":
-        perm_checker.check_permission(access_key, connection_id)
-        sql = args.get("sql")
-        if not sql:
-            raise HTTPException(status_code=400, detail="缺少参数: sql")
-        sec = intercept_sql(sql, {"key": access_key})
-        if not sec["safe"]:
-            raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
-        eng, _, _ = _get_engine(cfg, qp, connection_id)
-        rows = qp.run_query(eng, sql)
-        masked_rows = data_masker.mask_results(rows)
-        return {"rows": masked_rows, "count": len(masked_rows)}
-    
-    elif tool_name == "execute_sql":
-        sql = args.get("sql")
-        if not sql:
-            raise HTTPException(status_code=400, detail="缺少参数: sql")
-        require_ddl = perm_checker.is_ddl_sql(sql)
-        perm_checker.check_permission(access_key, connection_id, require_ddl=require_ddl)
-        sec = intercept_sql(sql, {"key": access_key})
-        if not sec["safe"]:
-            raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
-        eng, _, _ = _get_engine(cfg, qp, connection_id)
-        from sqlalchemy import text
-        with eng.connect() as conn:
-            result = conn.execute(text(sql))
-            conn.commit()
-            try:
-                rows = [dict(r._mapping) for r in result]
-                masked_rows = data_masker.mask_results(rows)
-                return {"rows": masked_rows, "count": len(masked_rows)}
-            except:
-                return {"success": True, "message": "SQL执行成功"}
-    
-    else:
-        raise HTTPException(status_code=404, detail=f"未知工具: {tool_name}")
+    except Exception as e:
+        # 将异常包装为 MCP 错误返回，以便 AI 理解失败原因
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Error: {str(e)}"
+                }
+            ],
+            "isError": True
+        }
 
 
 def _get_engine(cfg: Config, qp: QueryProxy, connection_id: int):

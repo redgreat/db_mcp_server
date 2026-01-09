@@ -25,13 +25,13 @@ class MCPTool:
 MCP_TOOLS = [
     MCPTool(
         name="list_connections",
-        description="列出当前用户有权访问的所有数据库连接",
+        description="列出当前用户有权访问的所有数据库连接。如果不提供 search 参数，则列出全部有权访问的连接。",
         input_schema={
             "type": "object",
             "properties": {
                 "search": {
                     "type": "string",
-                    "description": "可选的搜索关键词，按连接名称过滤"
+                    "description": "可选搜索关键词，匹配连接名称或数据库类型（如 mysql, postgres 等）"
                 }
             }
         }
