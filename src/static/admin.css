@@ -487,3 +487,52 @@ body {
     border-radius: 4px;
 }
 
+/* Tab 标签页样式 */
+.tab-nav {
+    display: flex;
+    gap: 8px;
+}
+
+.tab-btn {
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--text-color);
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* 分页器样式 */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 0;
+}
+
+.pagination .btn {
+    min-width: 40px;
+    justify-content: center;
+}
+

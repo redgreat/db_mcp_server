@@ -121,18 +121,28 @@ function switchPage(page) {
     switch (page) {
         case 'connections': loadConnections(); break;
         case 'keys': loadKeys(); break;
-        case 'audit': loadAuditLogs(); break;
+        case 'audit':
+            // 默认加载数据库操作日志
+            switchLogTab('audit');
+            break;
     }
 }
 
 // ---------------- 业务逻辑 ----------------
 
-// 1. 连接管理
-async function loadConnections() {
+// 1. 连接管理（支持分页）
+let currentConnectionsPage = 1;
+const connectionsPageSize = 10;
+
+async function loadConnections(page = 1) {
+    currentConnectionsPage = page;
     const tbody = document.getElementById('connections-table-body');
     if (!tbody) return;
+
+    const params = new URLSearchParams({ page, page_size: connectionsPageSize });
+
     try {
-        const data = await apiCall('/admin/connections');
+        const data = await apiCall('/admin/connections?' + params);
         tbody.innerHTML = data.items.map(item => `
             <tr>
                 <td>${item.id}</td>
@@ -147,6 +157,9 @@ async function loadConnections() {
                 </td>
             </tr>
         `).join('');
+
+        // 渲染分页器
+        renderPagination('connections-pagination', data.total, data.page, data.page_size, loadConnections);
     } catch (error) {
         tbody.innerHTML = `<tr><td colspan="8">加载失败: ${error.message}</td></tr>`;
     }
@@ -189,15 +202,22 @@ async function deleteConnection(id) {
     }
 }
 
-// 2. 访问密钥与权限管理 (并表展示)
-async function loadKeys() {
+// 2. 访问密钥与权限管理（支持分页）
+let currentKeysPage = 1;
+const keysPageSize = 10;
+
+async function loadKeys(page = 1) {
+    currentKeysPage = page;
     const tbody = document.getElementById('keys-table-body');
     if (!tbody) return;
+
+    const params = new URLSearchParams({ page, page_size: keysPageSize });
+
     try {
         // 同时获取密钥、连接、权限、白名单四表数据
         const [keysRes, connsRes, permsRes, whitelistRes] = await Promise.all([
-            apiCall('/admin/keys'),
-            apiCall('/admin/connections'),
+            apiCall('/admin/keys?' + params),
+            apiCall('/admin/connections'),  // 连接需要全量，用于显示名称
             apiCall('/admin/permissions'),
             apiCall('/admin/whitelist')
         ]);
@@ -271,6 +291,9 @@ async function loadKeys() {
                 </tr>
             `;
         }).join('');
+
+        // 渲染分页器
+        renderPagination('keys-pagination', keysRes.total, keysRes.page, keysRes.page_size, loadKeys);
     } catch (error) {
         tbody.innerHTML = `<tr><td colspan="9">加载失败: ${error.message}</td></tr>`;
     }
@@ -481,12 +504,16 @@ async function deleteWhitelist(id) {
     }
 }
 
-// 4. 审计日志
-async function loadAuditLogs() {
+// 4. 审计日志（支持分页）
+let currentAuditPage = 1;
+const auditPageSize = 10;
+
+async function loadAuditLogs(page = 1) {
+    currentAuditPage = page;
     const tbody = document.getElementById('audit-table-body');
     const accessKey = document.getElementById('audit-filter-key').value;
     const operation = document.getElementById('audit-filter-operation').value;
-    const params = new URLSearchParams({ limit: 50 });
+    const params = new URLSearchParams({ page, page_size: auditPageSize });
     if (accessKey) params.append('access_key', accessKey);
     if (operation) params.append('operation', operation);
 
@@ -504,9 +531,107 @@ async function loadAuditLogs() {
                 <td>${item.status === 'success' ? '✅' : '❌'}</td>
             </tr>
         `).join('');
+
+        // 渲染分页器
+        renderPagination('audit-pagination', data.total, data.page, data.page_size, loadAuditLogs);
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="8">加载异常</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8">加载异常: ${error.message}</td></tr>`;
     }
+}
+
+// 5. 系统操作日志（支持分页）
+let currentSystemPage = 1;
+const systemPageSize = 20;
+
+async function loadSystemLogs(page = 1) {
+    currentSystemPage = page;
+    const tbody = document.getElementById('system-table-body');
+    const operation = document.getElementById('system-filter-operation').value;
+    const resourceType = document.getElementById('system-filter-resource').value;
+    const params = new URLSearchParams({ page, page_size: systemPageSize });
+    if (operation) params.append('operation', operation);
+    if (resourceType) params.append('resource_type', resourceType);
+
+    try {
+        const data = await apiCall('/admin/system/logs?' + params);
+        tbody.innerHTML = data.items.map(item => `
+            <tr>
+                <td>${formatDate(item.timestamp)}</td>
+                <td>${item.username || '-'}</td>
+                <td>${item.operation}</td>
+                <td>${item.resource_type}</td>
+                <td>${item.resource_id || '-'}</td>
+                <td title="${JSON.stringify(item.details || {})}">${JSON.stringify(item.details || {}).substring(0, 50)}...</td>
+                <td>${item.client_ip || '-'}</td>
+            </tr>
+        `).join('');
+
+        // 渲染分页器
+        renderPagination('system-pagination', data.total, data.page, data.page_size, loadSystemLogs);
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="7">加载异常: ${error.message}</td></tr>`;
+    }
+}
+
+// Tab 切换
+function switchLogTab(tab) {
+    // 切换 Tab 按钮样式
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+
+    // 切换内容显示
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(tab + '-tab-content').classList.add('active');
+
+    // 加载对应数据
+    if (tab === 'audit') {
+        loadAuditLogs(1);
+    } else if (tab === 'system') {
+        loadSystemLogs(1);
+    }
+}
+
+// 通用分页渲染函数
+function renderPagination(elementId, total, currentPage, pageSize, loadFunc) {
+    const container = document.getElementById(elementId);
+    if (!container) return;
+
+    const totalPages = Math.ceil(total / pageSize);
+    if (totalPages <= 1) {
+        container.innerHTML = `<div style="text-align: center; color: #64748b;">共 ${total} 条记录</div>`;
+        return;
+    }
+
+    let html = `<div style="display: flex; align-items: center; justify-content: center; gap: 8px;">`;
+    html += `<span style="color: #64748b; margin-right: 12px;">共 ${total} 条</span>`;
+
+    // 上一页
+    if (currentPage > 1) {
+        html += `<button class="btn btn-sm btn-outline" onclick="${loadFunc.name}(${currentPage - 1})">上一页</button>`;
+    }
+
+    // 页码
+    const startPage = Math.max(1, currentPage - 2);
+    const endPage = Math.min(totalPages, currentPage + 2);
+
+    for (let i = startPage; i <= endPage; i++) {
+        if (i === currentPage) {
+            html += `<button class="btn btn-sm btn-primary">${i}</button>`;
+        } else {
+            html += `<button class="btn btn-sm btn-outline" onclick="${loadFunc.name}(${i})">${i}</button>`;
+        }
+    }
+
+    // 下一页
+    if (currentPage < totalPages) {
+        html += `<button class="btn btn-sm btn-outline" onclick="${loadFunc.name}(${currentPage + 1})">下一页</button>`;
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
 }
 
 // 模态框与工具

@@ -95,6 +95,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <div id="connections-pagination" class="pagination" style="margin-top: 16px;"></div>
                 </div>
 
                 <!-- 访问密钥 -->
@@ -127,13 +128,24 @@
                             </tbody>
                         </table>
                     </div>
+                    <div id="keys-pagination" class="pagination" style="margin-top: 16px;"></div>
                 </div>
 
                 <!-- 审计日志 -->
                 <div id="audit-content" class="content-section">
                     <div class="content-header">
-                        <h3>审计日志</h3>
-                        <div class="filters">
+                        <h3>日志查询</h3>
+                    </div>
+
+                    <!-- Tab 导航 -->
+                    <div class="tab-nav" style="margin-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
+                        <button class="tab-btn active" data-tab="audit" onclick="switchLogTab('audit')">数据库操作日志</button>
+                        <button class="tab-btn" data-tab="system" onclick="switchLogTab('system')">系统操作日志</button>
+                    </div>
+
+                    <!-- 数据库操作日志 Tab -->
+                    <div id="audit-tab-content" class="tab-content active">
+                        <div class="filters" style="margin-bottom: 16px;">
                             <input type="text" id="audit-filter-key" placeholder="访问密钥">
                             <select id="audit-filter-operation">
                                 <option value="">所有操作</option>
@@ -141,29 +153,77 @@
                                 <option value="transaction">事务</option>
                                 <option value="metadata">元数据</option>
                             </select>
-                            <button class="btn btn-sm" onclick="loadAuditLogs()">查询</button>
+                            <button class="btn btn-sm" onclick="loadAuditLogs(1)">查询</button>
                         </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>访问密钥</th>
+                                        <th>客户端IP</th>
+                                        <th>操作</th>
+                                        <th>SQL</th>
+                                        <th>行数</th>
+                                        <th>耗时(ms)</th>
+                                        <th>状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="audit-table-body">
+                                    <tr>
+                                        <td colspan="8" class="loading">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="audit-pagination" class="pagination" style="margin-top: 16px;"></div>
                     </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>时间</th>
-                                    <th>访问密钥</th>
-                                    <th>客户端IP</th>
-                                    <th>操作</th>
-                                    <th>SQL</th>
-                                    <th>行数</th>
-                                    <th>耗时(ms)</th>
-                                    <th>状态</th>
-                                </tr>
-                            </thead>
-                            <tbody id="audit-table-body">
-                                <tr>
-                                    <td colspan="8" class="loading">加载中...</td>
-                                </tr>
-                            </tbody>
-                        </table>
+
+                    <!-- 系统操作日志 Tab -->
+                    <div id="system-tab-content" class="tab-content">
+                        <div class="filters" style="margin-bottom: 16px;">
+                            <select id="system-filter-operation">
+                                <option value="">所有操作</option>
+                                <option value="create_key">创建密钥</option>
+                                <option value="delete_key">删除密钥</option>
+                                <option value="toggle_key">启用/禁用密钥</option>
+                                <option value="assign_permission">分配权限</option>
+                                <option value="delete_permission">删除权限</option>
+                                <option value="add_whitelist">添加白名单</option>
+                                <option value="delete_whitelist">删除白名单</option>
+                                <option value="create_connection">创建连接</option>
+                                <option value="delete_connection">删除连接</option>
+                            </select>
+                            <select id="system-filter-resource">
+                                <option value="">所有资源类型</option>
+                                <option value="access_key">访问密钥</option>
+                                <option value="permission">权限</option>
+                                <option value="whitelist">IP白名单</option>
+                                <option value="connection">数据库连接</option>
+                            </select>
+                            <button class="btn btn-sm" onclick="loadSystemLogs(1)">查询</button>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>操作人</th>
+                                        <th>操作类型</th>
+                                        <th>资源类型</th>
+                                        <th>资源ID</th>
+                                        <th>详情</th>
+                                        <th>客户端IP</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="system-table-body">
+                                    <tr>
+                                        <td colspan="7" class="loading">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="system-pagination" class="pagination" style="margin-top: 16px;"></div>
                     </div>
                 </div>
             </main>

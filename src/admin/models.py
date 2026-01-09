@@ -86,6 +86,20 @@ def ensure_schema(engine: Engine):
         Column("metadata", JSON, nullable=True),  # 额外信息
     )
     
+    # 系统操作日志表
+    system_logs = Table(
+        "system_logs", meta,
+        Column("id", BigInteger, primary_key=True),
+        Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True),
+        Column("user_id", Integer, ForeignKey("admin_users.id"), nullable=True),
+        Column("username", String(100), nullable=True),
+        Column("operation", String(50), nullable=False, index=True),  # create_key/delete_key等
+        Column("resource_type", String(50), nullable=False, index=True),  # access_key/permission/whitelist/connection
+        Column("resource_id", Integer, nullable=True),
+        Column("details", JSON, nullable=True),  # 操作详情
+        Column("client_ip", String(45), nullable=True),
+    )
+    
     # 会话表（用于JWT认证的可选黑名单）
     sessions = Table(
         "sessions", meta,
