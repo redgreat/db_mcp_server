@@ -9,5 +9,5 @@ cryptography
 sqlparse
 pyyaml
 pyjwt
-passlib[bcrypt]
+bcrypt
 

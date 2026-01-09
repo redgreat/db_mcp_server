@@ -5,15 +5,15 @@ services:
     image: postgres:17-alpine
     container_name: db_mcp_postgres
     environment:
-      POSTGRES_DB: zr_db_mcp_admin
-      POSTGRES_USER: dbmcp_admin
-      POSTGRES_PASSWORD: ${ADMIN_DB_PASSWORD:-change_this_password}
+      POSTGRES_DB: db_mcp_admin
+      POSTGRES_USER: user_dbmcp
+      POSTGRES_PASSWORD: Lunz2017
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - dbmcp_network
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U dbmcp_admin" ]
+      test: [ "CMD-SHELL", "pg_isready -U user_dbmcp -d db_mcp_admin" ]
       interval: 10s
       timeout: 5s
       retries: 5

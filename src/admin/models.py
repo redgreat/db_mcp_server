@@ -33,48 +33,29 @@ def ensure_schema(engine: Engine):
         Column("created_at", DateTime(timezone=True), server_default=func.now()),
     )
     
-    # 实例表
-    instances = Table(
-        "instances", meta,
+    # 数据库连接表 (包含实例、库名、账号、加密密码)
+    db_connections = Table(
+        "db_connections", meta,
         Column("id", Integer, primary_key=True),
-        Column("name", String(100), nullable=False, unique=True),
+        Column("name", String(100), nullable=False, unique=True), # 连接名称
         Column("host", String(255), nullable=False),
         Column("port", Integer, nullable=False),
         Column("db_type", String(20), nullable=False, server_default="mysql"),
+        Column("database", String(255), nullable=False), # 数据库名
+        Column("username", String(255), nullable=False),
+        Column("password_enc", Text, nullable=False),    # 加密存储的密码
         Column("description", String(255), nullable=True),
         Column("created_at", DateTime(timezone=True), server_default=func.now()),
     )
     
-    # 数据库表
-    databases = Table(
-        "databases", meta,
-        Column("id", Integer, primary_key=True),
-        Column("instance_id", Integer, ForeignKey("instances.id"), nullable=False),
-        Column("name", String(255), nullable=False),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    )
-    
-    # 账号表
-    accounts = Table(
-        "accounts", meta,
-        Column("id", Integer, primary_key=True),
-        Column("instance_id", Integer, ForeignKey("instances.id"), nullable=False),
-        Column("username", String(255), nullable=False),
-        Column("password_enc", Text, nullable=False),
-        Column("plugin", String(64), nullable=True),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    )
-    
-    # 权限表
+    # 权限表 (关联到 db_connections)
     permissions = Table(
         "permissions", meta,
         Column("id", Integer, primary_key=True),
         Column("key_id", Integer, ForeignKey("access_keys.id"), nullable=False),
-        Column("instance_id", Integer, ForeignKey("instances.id"), nullable=False),
-        Column("database_id", Integer, ForeignKey("databases.id"), nullable=False),
-        Column("account_id", Integer, ForeignKey("accounts.id"), nullable=False),
+        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=False),
         Column("select_only", Boolean, default=True),
-        Column("allow_ddl", Boolean, default=False),  # 是否允许DDL操作
+        Column("allow_ddl", Boolean, default=False),
         Column("created_at", DateTime(timezone=True), server_default=func.now()),
     )
     
@@ -88,16 +69,14 @@ def ensure_schema(engine: Engine):
         Column("created_at", DateTime(timezone=True), server_default=func.now()),
     )
     
-    # 审计日志表（新增）
+    # 审计日志表
     audit_logs = Table(
         "audit_logs", meta,
         Column("id", BigInteger, primary_key=True),
         Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True),
         Column("access_key", String(128), nullable=True, index=True),
         Column("client_ip", String(45), nullable=True),
-        Column("instance_id", Integer, nullable=True),
-        Column("database_id", Integer, nullable=True),
-        Column("account_id", Integer, nullable=True),
+        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=True),
         Column("operation", String(50), nullable=False),  # query/transaction/metadata
         Column("sql_text", Text, nullable=True),
         Column("rows_affected", Integer, nullable=True),
@@ -122,18 +101,31 @@ def ensure_schema(engine: Engine):
     meta.create_all(engine)
 
 
-def create_default_admin(engine: Engine, username: str = "admin", password: str = "admin123"):
+def create_default_admin(engine: Engine, master_key: str = None, username: str = "admin", password: str = "admin123"):
     """创建默认管理员账号
     
     Args:
         engine: 数据库引擎
+        master_key: 主密钥 (Pepper)
         username: 管理员用户名
         password: 管理员密码
     """
     from sqlalchemy import Table, MetaData, select, insert
     from sqlalchemy.orm import Session
-    from passlib.hash import bcrypt
+    import bcrypt
+    import hmac
+    import hashlib
     
+    # 如果没传 master_key，尝试从配置加载
+    if master_key is None:
+        try:
+            from ..config import Config
+            cfg = Config.load()
+            master_key = cfg.security.master_key
+        except Exception:
+            # 如果加载配置失败，则无法进行加密
+            raise ValueError("无法获取 master_key，密码加盐失败")
+            
     meta = MetaData()
     admin_users = Table("admin_users", meta, autoload_with=engine)
     
@@ -144,8 +136,18 @@ def create_default_admin(engine: Engine, username: str = "admin", password: str 
         ).first()
         
         if not existing:
+            # 使用 master_key 处理密码 (Pepper)
+            peppered_password = hmac.new(
+                master_key.encode('utf-8'),
+                password.encode('utf-8'),
+                hashlib.sha256
+            ).digest()
+            
             # 创建默认管理员
-            password_hash = bcrypt.hash(password)
+            salt = bcrypt.gensalt()
+            hashed = bcrypt.hashpw(peppered_password, salt)
+            password_hash = hashed.decode('utf-8')
+            
             session.execute(
                 insert(admin_users).values(
                     username=username,

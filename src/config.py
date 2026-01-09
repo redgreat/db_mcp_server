@@ -84,9 +84,6 @@ class Config:
         with open(config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
         
-        # 支持环境变量覆盖
-        data = Config._apply_env_overrides(data)
-        
         return Config(
             server=ServerConfig(**data['server']),
             security=SecurityConfig(**data['security']),
@@ -94,39 +91,7 @@ class Config:
             database=DatabaseConfig(**data['database']),
             logging=LoggingConfig(**data['logging'])
         )
-    
-    @staticmethod
-    def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
-        """使用环境变量覆盖配置"""
-        # 服务器配置
-        if os.getenv("HOST"):
-            data['server']['host'] = os.getenv("HOST")
-        if os.getenv("PORT"):
-            data['server']['port'] = int(os.getenv("PORT"))
-        
-        # 安全配置
-        if os.getenv("MASTER_KEY"):
-            data['security']['master_key'] = os.getenv("MASTER_KEY")
-        if os.getenv("JWT_SECRET"):
-            data['security']['jwt_secret'] = os.getenv("JWT_SECRET")
-        
-        # 管理数据库配置
-        if os.getenv("ADMIN_DB_HOST"):
-            data['admin_database']['host'] = os.getenv("ADMIN_DB_HOST")
-        if os.getenv("ADMIN_DB_PORT"):
-            data['admin_database']['port'] = int(os.getenv("ADMIN_DB_PORT"))
-        if os.getenv("ADMIN_DB_NAME"):
-            data['admin_database']['database'] = os.getenv("ADMIN_DB_NAME")
-        if os.getenv("ADMIN_DB_USER"):
-            data['admin_database']['username'] = os.getenv("ADMIN_DB_USER")
-        if os.getenv("ADMIN_DB_PASSWORD"):
-            data['admin_database']['password'] = os.getenv("ADMIN_DB_PASSWORD")
-        
-        # 日志配置
-        if os.getenv("LOG_DIR"):
-            data['logging']['dir'] = os.getenv("LOG_DIR")
-        
-        return data
+
     
     def get_admin_db_url(self) -> str:
         """获取管理数据库连接URL"""

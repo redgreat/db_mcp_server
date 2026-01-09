@@ -23,11 +23,23 @@ def create_app() -> FastAPI:
     logger = get_logger("server", cfg.logging.dir)
     app = FastAPI()
     
-    # 挂载静态文件
-    static_dir = Path(__file__).parent / "static"
+    # 静态文件目录
+    static_dir = Path(__file__).resolve().parent / "static"
+    
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        fav_path = static_dir / "favicon.ico"
+        if fav_path.exists():
+            from fastapi.responses import FileResponse
+            return FileResponse(fav_path)
+        raise HTTPException(status_code=404)
+
     if static_dir.exists():
         from fastapi.staticfiles import StaticFiles
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        logger.info(f"Mounted static directory: {static_dir}")
+    else:
+        logger.warning(f"Static directory not found: {static_dir}")
     
     app.include_router(build_admin_router(cfg))
     qp = QueryProxy()
@@ -51,7 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
 
     @app.post("/query")
-    def query(sql: str, instance_id: int, database_id: int, account_id: int, 
+    def query(sql: str, connection_id: int, 
               request: Request, x_access_key: str = Header(default="")):
         """执行查询代理操作"""
         start_time = time.time()
@@ -69,12 +81,12 @@ def create_app() -> FastAPI:
                         detail=f"IP {client_ip} 不在访问密钥 {x_access_key} 的白名单中，访问被拒绝"
                     )
             
-            _check_permission(cfg, x_access_key, instance_id, database_id, account_id)
+            _check_permission(cfg, x_access_key, connection_id)
             
             sec = intercept_sql(sql, {"key": x_access_key})
             if not sec["safe"]:
                 raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
-            eng, db_name, _ = _resolve_engine(cfg, qp, instance_id, database_id, account_id)
+            eng, db_name, _ = _resolve_engine(cfg, qp, connection_id)
             rows = qp.run_query(eng, sql)
             
             # 数据脱敏
@@ -89,9 +101,7 @@ def create_app() -> FastAPI:
                 status="success",
                 access_key=x_access_key,
                 client_ip=client_ip,
-                instance_id=instance_id,
-                database_id=database_id,
-                account_id=account_id,
+                connection_id=connection_id, # 更新审计日志字段
                 sql_text=sql,
                 rows_affected=len(rows),
                 duration_ms=duration_ms
@@ -106,9 +116,7 @@ def create_app() -> FastAPI:
                 status="error",
                 access_key=x_access_key,
                 client_ip=client_ip,
-                instance_id=instance_id,
-                database_id=database_id,
-                account_id=account_id,
+                connection_id=connection_id,
                 sql_text=sql,
                 duration_ms=duration_ms,
                 error_message=str(e)
@@ -116,15 +124,15 @@ def create_app() -> FastAPI:
             raise
 
     @app.get("/sse/query")
-    def sse_query(sql: str, instance_id: int, database_id: int, account_id: int, x_access_key: str = Header(default="")):
+    def sse_query(sql: str, connection_id: int, x_access_key: str = Header(default="")):
         """通过SSE流式返回查询结果"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
-        _check_permission(cfg, x_access_key, instance_id, database_id, account_id)
+        _check_permission(cfg, x_access_key, connection_id)
         sec = intercept_sql(sql, {"key": x_access_key})
         if not sec["safe"]:
             raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
-        eng, _, _ = _resolve_engine(cfg, qp, instance_id, database_id, account_id)
+        eng, _, _ = _resolve_engine(cfg, qp, connection_id)
 
         def event_stream():
             """生成SSE数据流"""
@@ -139,35 +147,31 @@ def create_app() -> FastAPI:
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.get("/metadata/tables")
-    def metadata_tables(instance_id: int, database_id: int, account_id: int, x_access_key: str = Header(default="")):
+    def metadata_tables(connection_id: int, x_access_key: str = Header(default="")):
         """返回数据库表列表"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
-        _check_permission(cfg, x_access_key, instance_id, database_id, account_id)
-        eng, db_name, db_type = _resolve_engine(cfg, qp, instance_id, database_id, account_id)
+        _check_permission(cfg, x_access_key, connection_id)
+        eng, db_name, db_type = _resolve_engine(cfg, qp, connection_id)
         from .tools.db_metadata_tool import list_tables
         return {"items": list_tables(eng, db_name, db_type)}
 
     @app.get("/metadata/table_info")
-    def metadata_table_info(instance_id: int, database_id: int, account_id: int, table: str, x_access_key: str = Header(default="")):
+    def metadata_table_info(connection_id: int, table: str, x_access_key: str = Header(default="")):
         """返回表结构信息"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
-        _check_permission(cfg, x_access_key, instance_id, database_id, account_id)
-        eng, db_name, db_type = _resolve_engine(cfg, qp, instance_id, database_id, account_id)
+        _check_permission(cfg, x_access_key, connection_id)
+        eng, db_name, db_type = _resolve_engine(cfg, qp, connection_id)
         from .tools.db_metadata_tool import table_info
         return table_info(eng, db_name, table, db_type)
 
     @app.post("/transaction/begin")
-    def txn_begin(instance_id: int, database_id: int, account_id: int, txn_id: str, 
+    def txn_begin(connection_id: int, txn_id: str, 
                   timeout: Optional[int] = None, x_access_key: str = Header(default="")):
-        """开启事务，支持自定义超时时间
-        
-        Args:
-            timeout: 超时时间（秒），不提供则使用默认值（300秒）
-        """
-        _check_permission(cfg, x_access_key, instance_id, database_id, account_id)
-        eng, _, _ = _resolve_engine(cfg, qp, instance_id, database_id, account_id)
+        """开启事务"""
+        _check_permission(cfg, x_access_key, connection_id)
+        eng, _, _ = _resolve_engine(cfg, qp, connection_id)
         qp.begin_transaction(eng, txn_id, timeout=timeout)
         logger.info(f"事务开启 txn={txn_id} timeout={timeout or 300}s")
         return {"ok": True, "txn_id": txn_id}
@@ -203,45 +207,53 @@ def create_app() -> FastAPI:
     return app
 
 
-def _resolve_engine(cfg: Config, qp: QueryProxy, instance_id: int, database_id: int, account_id: int):
-    """解析并返回数据库引擎、库名和类型"""
+def _resolve_engine(cfg: Config, qp: QueryProxy, connection_id: int):
+    """解析并返回数据库引擎、库名和类型 (从统一连接表)"""
     from sqlalchemy import Table, MetaData
     meta = MetaData()
-    eng_admin = create_engine(f"sqlite:///{cfg.admin_db_path}")
-    inst = Table("instances", meta, autoload_with=eng_admin)
-    dbs = Table("databases", meta, autoload_with=eng_admin)
-    accs = Table("accounts", meta, autoload_with=eng_admin)
-    with Session(eng_admin) as s:
-        ri = s.execute(select(inst).where(inst.c.id == instance_id)).mappings().first()
-        rd = s.execute(select(dbs).where(dbs.c.id == database_id)).mappings().first()
-        ra = s.execute(select(accs).where(accs.c.id == account_id)).mappings().first()
-        if not ri or not rd or not ra:
-            raise HTTPException(status_code=404, detail="实例/库/账号不存在")
-        pwd = decrypt_text(ra["password_enc"], cfg.master_key)
-        db_type = ri.get("db_type", "mysql")  # 获取数据库类型，默认mysql
-        engine = qp.get_engine(ri["host"], int(ri["port"]), ra["username"], pwd, rd["name"], db_type)
-        return engine, rd["name"], db_type
+    # 使用 PostgreSQL 管理库
+    admin_engine = create_engine(cfg.get_admin_db_url(), pool_pre_ping=True)
+    conns = Table("db_connections", meta, autoload_with=admin_engine)
+    
+    with Session(admin_engine) as s:
+        r = s.execute(select(conns).where(conns.c.id == connection_id)).mappings().first()
+        if not r:
+            raise HTTPException(status_code=404, detail="数据库连接记录不存在")
+        
+        # 解密密码 (使用 master_key)
+        pwd = decrypt_text(r["password_enc"], cfg.security.master_key)
+        
+        engine = qp.get_engine(
+            r["host"], 
+            int(r["port"]), 
+            r["username"], 
+            pwd, 
+            r["database"], 
+            r["db_type"]
+        )
+        return engine, r["database"], r["db_type"]
 
-def _check_permission(cfg: Config, ak: str, instance_id: int, database_id: int, account_id: int):
-    """校验访问密钥权限"""
+def _check_permission(cfg: Config, ak: str, connection_id: int):
+    """校验访问密钥对特定连接的权限"""
     from sqlalchemy import Table, MetaData
     meta = MetaData()
-    eng_admin = create_engine(f"sqlite:///{cfg.admin_db_path}")
-    keys = Table("access_keys", meta, autoload_with=eng_admin)
-    perms = Table("permissions", meta, autoload_with=eng_admin)
-    with Session(eng_admin) as s:
+    admin_engine = create_engine(cfg.get_admin_db_url(), pool_pre_ping=True)
+    keys = Table("access_keys", meta, autoload_with=admin_engine)
+    perms = Table("permissions", meta, autoload_with=admin_engine)
+    
+    with Session(admin_engine) as s:
         k = s.execute(select(keys).where(keys.c.ak == ak, keys.c.enabled == True)).mappings().first()
         if not k:
             raise HTTPException(status_code=403, detail="访问密钥不可用")
+        
         p = s.execute(
             select(perms).where(
                 perms.c.key_id == k["id"],
-                perms.c.instance_id == instance_id,
-                perms.c.database_id == database_id,
-                perms.c.account_id == account_id,
+                perms.c.connection_id == connection_id
             )
         ).mappings().first()
+        
         if not p:
-            raise HTTPException(status_code=403, detail="无权访问指定实例/库/账号")
+            raise HTTPException(status_code=403, detail="该密钥无权访问此数据库连接")
 
 app = create_app()

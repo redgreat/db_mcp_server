@@ -38,6 +38,7 @@ def build_admin_router(cfg: Config):
     
     # 认证服务
     auth_service = AuthService(
+        master_key=cfg.security.master_key,
         jwt_secret=cfg.security.jwt_secret,
         session_timeout=cfg.security.session_timeout
     )
@@ -138,91 +139,19 @@ def build_admin_router(cfg: Config):
         logger.info(f"创建访问密钥: {req.ak} by {user_data['username']}")
         return {"ok": True}
     
-    # ==================== 实例管理 ====================
+    # ==================== 数据库连接管理 ====================
     
-    @router.get("/admin/instances")
-    def list_instances(authorization: str = Header(None)):
-        """列出实例信息（需要登录）"""
+    @router.get("/admin/connections")
+    def list_connections(authorization: str = Header(None)):
+        """列出所有数据库连接（需要登录）"""
         auth_service.get_current_user(authorization)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
-        t = Table("instances", meta, autoload_with=engine)
+        t = Table("db_connections", meta, autoload_with=engine)
         with Session(engine) as s:
             rows = s.execute(select(t)).mappings().all()
-        return {"items": [dict(r) for r in rows]}
-    
-    @router.post("/admin/instances")
-    def create_instance(
-        name: str,
-        host: str,
-        port: int,
-        db_type: str = "mysql",
-        description: str = "",
-        authorization: str = Header(None)
-    ):
-        """创建实例（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
-        
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("instances", meta, autoload_with=engine)
-        with Session(engine) as s:
-            s.execute(insert(t).values(
-                name=name,
-                host=host,
-                port=port,
-                db_type=db_type,
-                description=description
-            ))
-            s.commit()
-        logger.info(f"创建实例: {name} type:{db_type} by {user_data['username']}")
-        return {"ok": True}
-    
-    # ==================== 数据库管理 ====================
-    
-    @router.get("/admin/databases")
-    def list_databases(authorization: str = Header(None)):
-        """列出数据库信息（需要登录）"""
-        auth_service.get_current_user(authorization)
-        
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("databases", meta, autoload_with=engine)
-        with Session(engine) as s:
-            rows = s.execute(select(t)).mappings().all()
-        return {"items": [dict(r) for r in rows]}
-    
-    @router.post("/admin/databases")
-    def create_database(
-        instance_id: int,
-        name: str,
-        authorization: str = Header(None)
-    ):
-        """创建数据库记录（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
-        
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("databases", meta, autoload_with=engine)
-        with Session(engine) as s:
-            s.execute(insert(t).values(instance_id=instance_id, name=name))
-            s.commit()
-        logger.info(f"创建数据库: {name} on {instance_id} by {user_data['username']}")
-        return {"ok": True}
-    
-    # ==================== 账号管理 ====================
-    
-    @router.get("/admin/accounts")
-    def list_accounts(authorization: str = Header(None)):
-        """列出账号信息（需要登录）"""
-        auth_service.get_current_user(authorization)
-        
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("accounts", meta, autoload_with=engine)
-        with Session(engine) as s:
-            rows = s.execute(select(t)).mappings().all()
+        # 密码脱敏
         masked = []
         for r in rows:
             d = dict(r)
@@ -230,62 +159,54 @@ def build_admin_router(cfg: Config):
             masked.append(d)
         return {"items": masked}
     
-    @router.post("/admin/accounts")
-    def create_account(
-        instance_id: int,
+    @router.post("/admin/connections")
+    def create_connection(
+        name: str,
+        host: str,
+        port: int,
+        db_type: str,
+        database: str,
         username: str,
         password: str,
-        plugin: str = "",
+        description: Optional[str] = "",
         authorization: str = Header(None)
     ):
-        """创建账号并加密保存密码（需要登录）"""
+        """创建数据库连接（需要登录）"""
         user_data = auth_service.get_current_user(authorization)
+        
+        # 加密密码 (使用 master_key)
+        pwd_enc = encrypt_text(password, cfg.security.master_key)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
-        t = Table("accounts", meta, autoload_with=engine)
-        pwd_enc = encrypt_text(password, cfg.security.master_key)
+        t = Table("db_connections", meta, autoload_with=engine)
         with Session(engine) as s:
             s.execute(insert(t).values(
-                instance_id=instance_id,
+                name=name,
+                host=host,
+                port=port,
+                db_type=db_type,
+                database=database,
                 username=username,
                 password_enc=pwd_enc,
-                plugin=plugin
+                description=description
             ))
             s.commit()
-        logger.info(f"创建账号: {username} on {instance_id} by {user_data['username']}")
+        logger.info(f"创建连接: {name} by {user_data['username']}")
         return {"ok": True}
-    
-    # ==================== 审计日志查询 ====================
-    
-    @router.get("/admin/audit/logs")
-    def query_audit_logs(
-        limit: int = 100,
-        offset: int = 0,
-        access_key: Optional[str] = None,
-        operation: Optional[str] = None,
-        authorization: str = Header(None)
-    ):
-        """查询审计日志（需要登录）"""
+
+    @router.delete("/admin/connections/{conn_id}")
+    def delete_connection(conn_id: int, authorization: str = Header(None)):
+        """删除数据库连接（需要登录）"""
         auth_service.get_current_user(authorization)
         
-        from sqlalchemy import Table, MetaData, desc
+        from sqlalchemy import Table, MetaData
         meta = MetaData()
-        logs = Table("audit_logs", meta, autoload_with=engine)
-        
-        # 构建查询
-        query = select(logs).order_by(desc(logs.c.timestamp)).limit(limit).offset(offset)
-        
-        # 添加过滤条件
-        if access_key:
-            query = query.where(logs.c.access_key == access_key)
-        if operation:
-            query = query.where(logs.c.operation == operation)
-        
+        t = Table("db_connections", meta, autoload_with=engine)
         with Session(engine) as s:
-            rows = s.execute(query).mappings().all()
-        
-        return {"items": [dict(r) for r in rows], "total": len(rows)}
+            s.execute(delete(t).where(t.c.id == conn_id))
+            s.commit()
+        return {"ok": True}
     
     # ==================== 权限管理 ====================
     
@@ -304,13 +225,11 @@ def build_admin_router(cfg: Config):
     @router.post("/admin/permissions")
     def create_permission(
         key_id: int,
-        instance_id: int,
-        database_id: int,
-        account_id: int,
+        connection_id: int,
         select_only: bool = True,
         authorization: str = Header(None)
     ):
-        """创建权限（需要登录）"""
+        """创建权限（关联到连接 ID）"""
         user_data = auth_service.get_current_user(authorization)
         
         from sqlalchemy import Table, MetaData
@@ -319,13 +238,25 @@ def build_admin_router(cfg: Config):
         with Session(engine) as s:
             s.execute(insert(t).values(
                 key_id=key_id,
-                instance_id=instance_id,
-                database_id=database_id,
-                account_id=account_id,
+                connection_id=connection_id,
                 select_only=select_only
             ))
             s.commit()
-        logger.info(f"创建权限: key={key_id} by {user_data['username']}")
+        logger.info(f"创建权限: key={key_id} conn={connection_id} by {user_data['username']}")
+        return {"ok": True}
+    
+    @router.delete("/admin/permissions/{perm_id}")
+    def delete_permission(perm_id: int, authorization: str = Header(None)):
+        """删除权限（需要登录）"""
+        user_data = auth_service.get_current_user(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        t = Table("permissions", meta, autoload_with=engine)
+        with Session(engine) as s:
+            s.execute(delete(t).where(t.c.id == perm_id))
+            s.commit()
+        logger.info(f"删除权限: id={perm_id} by {user_data['username']}")
         return {"ok": True}
     
     # ==================== 白名单管理 ====================
@@ -378,5 +309,40 @@ def build_admin_router(cfg: Config):
         
         logger.info(f"删除白名单: id={whitelist_id} by {user_data['username']}")
         return {"ok": True}
+    
+    # ==================== 审计日志查询 ====================
+    
+    @router.get("/admin/audit/logs")
+    def list_audit_logs(
+        limit: int = 100,
+        access_key: Optional[str] = None,
+        operation: Optional[str] = None,
+        authorization: str = Header(None)
+    ):
+        """查询审计日志（需要登录）
+        
+        Args:
+            limit: 返回记录数限制
+            access_key: 按访问密钥过滤（可选）
+            operation: 按操作类型过滤（可选）
+        """
+        auth_service.get_current_user(authorization)
+        
+        from sqlalchemy import Table, MetaData, desc
+        meta = MetaData()
+        audit_logs = Table("audit_logs", meta, autoload_with=engine)
+        
+        with Session(engine) as s:
+            query = select(audit_logs).order_by(desc(audit_logs.c.timestamp)).limit(limit)
+            
+            # 添加过滤条件
+            if access_key:
+                query = query.where(audit_logs.c.access_key == access_key)
+            if operation:
+                query = query.where(audit_logs.c.operation == operation)
+            
+            rows = s.execute(query).mappings().all()
+        
+        return {"items": [dict(r) for r in rows]}
     
     return router
