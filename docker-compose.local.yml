@@ -1,0 +1,52 @@
+version: "3.9"
+services:
+  # PostgreSQL管理数据库
+  postgres:
+    image: postgres:17-alpine
+    container_name: db_mcp_postgres
+    environment:
+      POSTGRES_DB: db_mcp_admin
+      POSTGRES_USER: user_dbmcp
+      POSTGRES_PASSWORD: Lunz2017
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dbmcp_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user_dbmcp -d db_mcp_admin" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # db_mcp_server服务
+  db-mcp-server:
+    build: .
+    container_name: db_mcp_server
+    ports:
+      - "3000:3000"
+    environment:
+      - TZ=Asia/Shanghai
+      - LANG=zh_CN.UTF-8
+      - DISABLE_IPV6=true
+    volumes:
+      - ./logs:/var/log/db_mcp_server
+      - ./config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dbmcp_network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/admin" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+networks:
+  dbmcp_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
