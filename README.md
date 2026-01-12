@@ -117,7 +117,6 @@ zr_db_mcp_server/
 ├── config/              # 配置文件目录
 │   └── supervisord.conf # Supervisord 配置
 ├── scripts/             # 脚本目录
-│   └── init_admin_db.py # 管理库初始化脚本（PostgreSQL）
 ├── src/                 # 源代码目录
 │   ├── admin/           # 管理后台模块 (Web/API)
 │   ├── db/              # 数据库操作模块
@@ -126,7 +125,8 @@ zr_db_mcp_server/
 │   ├── mcp/             # MCP 协议与工具路由
 │   ├── config.py        # 配置加载（YAML）
 │   ├── server.py        # 服务主文件
-│   └── logging_utils.py # 日志工具
+│   ├── logging_utils.py # 日志工具
+│   └── init_admin_db.py # 管理库初始化脚本（PostgreSQL）
 ├── data/                # 数据目录（挂载卷）
 ├── logs/                # 日志目录（挂载卷）
 ├── Dockerfile           # Docker 镜像构建
