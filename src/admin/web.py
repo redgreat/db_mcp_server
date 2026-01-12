@@ -25,6 +25,11 @@ class CreateKeyRequest(BaseModel):
     description: str = ""
     enabled: bool = True
 
+class ChangePasswordRequest(BaseModel):
+    """修改密码请求"""
+    old_password: str
+    new_password: str
+
 
 def build_admin_router(cfg: Config):
     """创建管理后台路由"""
@@ -104,12 +109,7 @@ def build_admin_router(cfg: Config):
         return {"user": user_data}
     
     @router.post("/admin/change_password")
-    def change_password(
-        request: Request,
-        old_password: str,
-        new_password: str,
-        authorization: str = Header(None)
-    ):
+    def change_password(req: ChangePasswordRequest, authorization: str = Header(None)):
         """修改当前登录管理员密码"""
         from sqlalchemy import Table, MetaData, select, update
         
@@ -127,13 +127,13 @@ def build_admin_router(cfg: Config):
             if not row:
                 raise HTTPException(status_code=404, detail="用户不存在")
             
-            if not auth_service.verify_password(old_password, row["password_hash"]):
+            if not auth_service.verify_password(req.old_password, row["password_hash"]):
                 raise HTTPException(status_code=400, detail="原密码错误")
             
-            if not new_password:
+            if not req.new_password:
                 raise HTTPException(status_code=400, detail="新密码不能为空")
             
-            new_hash = auth_service.hash_password(new_password)
+            new_hash = auth_service.hash_password(req.new_password)
             
             session.execute(
                 update(admin_users)
