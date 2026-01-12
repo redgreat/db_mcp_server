@@ -103,6 +103,47 @@ def build_admin_router(cfg: Config):
         user_data = auth_service.get_current_user(authorization)
         return {"user": user_data}
     
+    @router.post("/admin/change_password")
+    def change_password(
+        request: Request,
+        old_password: str,
+        new_password: str,
+        authorization: str = Header(None)
+    ):
+        """修改当前登录管理员密码"""
+        from sqlalchemy import Table, MetaData, select, update
+        
+        user_data = auth_service.get_current_user(authorization)
+        user_id = user_data["user_id"]
+        
+        meta = MetaData()
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            row = session.execute(
+                select(admin_users).where(admin_users.c.id == user_id)
+            ).mappings().first()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            
+            if not auth_service.verify_password(old_password, row["password_hash"]):
+                raise HTTPException(status_code=400, detail="原密码错误")
+            
+            if not new_password:
+                raise HTTPException(status_code=400, detail="新密码不能为空")
+            
+            new_hash = auth_service.hash_password(new_password)
+            
+            session.execute(
+                update(admin_users)
+                .where(admin_users.c.id == user_id)
+                .values(password_hash=new_hash)
+            )
+            session.commit()
+        
+        return {"ok": True}
+    
     # ==================== 首页 ====================
     
     @router.get("/admin", response_class=HTMLResponse)
@@ -603,4 +644,3 @@ def build_admin_router(cfg: Config):
         }
     
     return router
-

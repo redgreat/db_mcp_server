@@ -72,6 +72,13 @@ function bindEvents() {
             logout();
         };
     }
+    const changePwdBtn = document.getElementById('change-pwd-btn');
+    if (changePwdBtn) {
+        changePwdBtn.onclick = (e) => {
+            e.preventDefault();
+            showChangePasswordModal();
+        };
+    }
 }
 
 // 页面加载时执行
@@ -641,6 +648,50 @@ function formatDate(s) {
     if (!s) return '-';
     const d = new Date(s);
     return d.toLocaleString('zh-CN');
+}
+
+function showChangePasswordModal() {
+    document.getElementById('modal-title').textContent = '修改密码';
+    document.getElementById('modal-body').innerHTML = `
+        <form id="change-pwd-form">
+            <div class="form-group">
+                <label>当前密码</label>
+                <input type="password" name="old_password" required>
+            </div>
+            <div class="form-group">
+                <label>新密码</label>
+                <input type="password" name="new_password" required>
+            </div>
+            <div class="form-group">
+                <label>确认新密码</label>
+                <input type="password" name="confirm_password" required>
+            </div>
+            <button type="submit" class="btn btn-primary">提交修改</button>
+        </form>
+    `;
+    document.getElementById('change-pwd-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const oldPassword = fd.get('old_password');
+        const newPassword = fd.get('new_password');
+        const confirmPassword = fd.get('confirm_password');
+        if (newPassword !== confirmPassword) {
+            alert('两次输入的新密码不一致');
+            return;
+        }
+        try {
+            await apiCall('/admin/change_password', {
+                method: 'POST',
+                body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+            });
+            closeModal();
+            alert('密码修改成功，请重新登录');
+            logout();
+        } catch (error) {
+            alert('修改失败: ' + error.message);
+        }
+    };
+    openModal();
 }
 
 // 初始化
