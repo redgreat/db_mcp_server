@@ -783,15 +783,31 @@ def build_admin_router(cfg: Config):
     
     @router.get("/admin/permissions")
     def list_permissions(authorization: str = Header(None)):
-        """列出权限配置（需要登录）"""
-        auth_service.get_current_user(authorization)
+        """列出权限配置（需要登录，基于用户角色筛选）"""
+        current_user = auth_service.get_current_user(authorization)
+        user_id = current_user["user_id"]
+        user_role = current_user.get("role", "user")
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
-        t = Table("permissions", meta, autoload_with=engine)
+        permissions = Table("permissions", meta, autoload_with=engine)
+        
         with Session(engine) as s:
-            rows = s.execute(select(t)).mappings().all()
+            if user_role == "admin":
+                # 管理员：返回所有权限
+                rows = s.execute(select(permissions)).mappings().all()
+            else:
+                # 普通用户：只返回自己有权访问的密钥的权限
+                key_users = Table("access_key_users", meta, autoload_with=engine)
+                query = (
+                    select(permissions)
+                    .join(key_users, permissions.c.key_id == key_users.c.key_id)
+                    .where(key_users.c.user_id == user_id)
+                )
+                rows = s.execute(query).mappings().all()
+        
         return {"items": [dict(r) for r in rows]}
+    
     
     @router.post("/admin/permissions")
     def create_permission(
@@ -864,14 +880,41 @@ def build_admin_router(cfg: Config):
         key_id: Optional[int] = None,
         authorization: str = Header(None)
     ):
-        """列出白名单（需要登录）
+        """列出白名单（需要登录，基于用户角色筛选）
         
         Args:
             key_id: 访问密钥ID（可选，不指定则返回所有）
         """
-        auth_service.get_current_user(authorization)
-        rules = ip_checker.list_whitelist(key_id=key_id)
+        current_user = auth_service.get_current_user(authorization)
+        user_id = current_user["user_id"]
+        user_role = current_user.get("role", "user")
+        
+        if user_role == "admin":
+            # 管理员：返回所有白名单或指定key_id的白名单
+            rules = ip_checker.list_whitelist(key_id=key_id)
+        else:
+            # 普通用户：只返回自己有权访问的密钥的白名单
+            from sqlalchemy import Table, MetaData
+            meta = MetaData()
+            whitelist = Table("whitelist", meta, autoload_with=engine)
+            key_users = Table("access_key_users", meta, autoload_with=engine)
+            
+            with Session(engine) as s:
+                query = (
+                    select(whitelist)
+                    .join(key_users, whitelist.c.key_id == key_users.c.key_id)
+                    .where(key_users.c.user_id == user_id)
+                )
+                
+                # 如果指定了key_id，添加过滤条件
+                if key_id is not None:
+                    query = query.where(whitelist.c.key_id == key_id)
+                
+                rows = s.execute(query).mappings().all()
+                rules = [dict(r) for r in rows]
+        
         return {"items": rules}
+    
     
     @router.post("/admin/whitelist")
     def create_whitelist(
