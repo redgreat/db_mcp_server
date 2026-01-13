@@ -214,6 +214,7 @@ let currentKeysPage = 1;
 const keysPageSize = 10;
 
 async function loadKeys(page = 1) {
+    window.currentKeysPage = page;  // 保存到全局变量，供 admin_users.js 使用
     currentKeysPage = page;
     const tbody = document.getElementById('keys-table-body');
     if (!tbody) return;
@@ -228,6 +229,18 @@ async function loadKeys(page = 1) {
             apiCall('/admin/permissions'),
             apiCall('/admin/whitelist')
         ]);
+
+        // 如果是管理员，获取每个密钥的已分配用户
+        let keyUsersMap = {};
+        if (window.currentUserRole === 'admin') {
+            const keyUsersPromises = keysRes.items.map(key =>
+                apiCall(`/admin/keys/${key.id}/users`).catch(() => ({ users: [] }))
+            );
+            const keyUsersResults = await Promise.all(keyUsersPromises);
+            keysRes.items.forEach((key, index) => {
+                keyUsersMap[key.id] = keyUsersResults[index].users || [];
+            });
+        }
 
         const connsMap = Object.fromEntries(connsRes.items.map(c => [c.id, c.name]));
 
@@ -264,6 +277,18 @@ async function loadKeys(page = 1) {
                 </div>
             `).join('');
 
+            // 显示已分配用户（仅管理员可见）
+            let assignedUsersHtml = '';
+            if (window.currentUserRole === 'admin') {
+                const assignedUsers = keyUsersMap[key.id] || [];
+                assignedUsersHtml = assignedUsers.map(user => `
+                    <div class="tag-item">
+                        <span>${user.username}</span>
+                        <span class="remove-icon" onclick="removeKeyUser(${key.id}, ${user.id}, '${user.username}')">&times;</span>
+                    </div>
+                `).join('');
+            }
+
             return `
                 <tr>
                     <td>${key.id}</td>
@@ -285,6 +310,12 @@ async function loadKeys(page = 1) {
                         <div class="tag-container">${whitelistHtml}</div>
                         <button class="btn btn-xs btn-outline" onclick="showAddWhitelistModal(${key.id})">+ 添加IP</button>
                     </td>
+                    <td class="permissions-cell">
+                        <div class="tag-container">${assignedUsersHtml}</div>
+                        ${window.currentUserRole === 'admin' ?
+                    `<button class="btn btn-xs btn-outline" onclick="showAssignUsersModal(${key.id})">+ 分配用户</button>`
+                    : ''}
+                    </td>
                     <td>${key.created_by || '-'}</td>
                     <td>${formatDate(key.created_at)}</td>
                     <td>
@@ -302,7 +333,7 @@ async function loadKeys(page = 1) {
         // 渲染分页器
         renderPagination('keys-pagination', keysRes.total, keysRes.page, keysRes.page_size, loadKeys);
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="9">加载失败: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10">加载失败: ${error.message}</td></tr>`;
     }
 }
 

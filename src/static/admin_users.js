@@ -353,10 +353,17 @@ function applyRoleBasedUI() {
         // 隐藏用户管理菜单
         const usersMenu = document.getElementById('users-menu');
         if (usersMenu) usersMenu.style.display = 'none';
+
+        // 隐藏审计日志菜单（普通用户不应看到）
+        const auditMenu = document.getElementById('audit-menu');
+        if (auditMenu) auditMenu.style.display = 'none';
     } else if (window.currentUserRole === 'admin') {
-        // 管理员：显示用户管理菜单
+        // 管理员：显示用户管理菜单和审计日志菜单
         const usersMenu = document.getElementById('users-menu');
         if (usersMenu) usersMenu.style.display = 'flex';
+
+        const auditMenu = document.getElementById('audit-menu');
+        if (auditMenu) auditMenu.style.display = 'flex';
     }
 }
 
