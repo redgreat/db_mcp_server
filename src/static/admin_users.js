@@ -1,6 +1,84 @@
 // 用户管理功能模块
 // 此文件扩展 admin.js，添加用户管理和基于角色的权限控制
 
+// ==================== 访问密钥用户分配功能 ====================
+
+// 显示密钥用户分配对话框
+async function showAssignUsersModal(keyId) {
+    try {
+        // 获取所有用户和已分配用户
+        const [allUsersRes, assignedUsersRes] = await Promise.all([
+            apiCall('/admin/users?page_size=1000'),  // 获取所有用户
+            apiCall(`/admin/keys/${keyId}/users`)     // 获取已分配用户
+        ]);
+
+        const assignedUserIds = new Set(assignedUsersRes.users.map(u => u.id));
+
+        document.getElementById('modal-title').textContent = '分配用户权限';
+        document.getElementById('modal-body').innerHTML = `
+            <form id="assign-users-form">
+                <div class="form-group">
+                    <label>选择可以访问此密钥的用户</label>
+                    <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;">
+                        ${allUsersRes.items.map(user => `
+                            <label style="display: block; padding: 8px; cursor: pointer; border-bottom: 1px solid #f0f0f0;">
+                                <input type="checkbox" name="user_ids" value="${user.id}" 
+                                       ${assignedUserIds.has(user.id) ? 'checked' : ''}
+                                       style="margin-right: 8px;">
+                                <strong>${user.username}</strong>
+                                <span class="badge ${user.role === 'admin' ? 'badge-danger' : 'badge-info'}" style="margin-left: 8px;">
+                                    ${user.role === 'admin' ? '管理员' : '普通用户'}
+                                </span>
+                                ${user.email ? `<span style="color: #666; margin-left: 8px;">(${user.email})</span>` : ''}
+                            </label>
+                        `).join('')}
+                    </div>
+                    <small style="color: #666; display: block; margin-top: 8px;">
+                        选中的用户可以在密钥列表中看到此密钥
+                    </small>
+                </div>
+                <button type="submit" class="btn btn-primary">确认分配</button>
+            </form>
+        `;
+
+        document.getElementById('assign-users-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const userIds = formData.getAll('user_ids').map(id => parseInt(id));
+
+            try {
+                await apiCall(`/admin/keys/${keyId}/users`, {
+                    method: 'POST',
+                    body: JSON.stringify(userIds)
+                });
+                closeModal();
+                alert('用户分配成功');
+                if (window.loadKeys) loadKeys(window.currentKeysPage || 1);
+            } catch (error) {
+                alert('分配失败: ' + error.message);
+            }
+        };
+
+        openModal();
+    } catch (error) {
+        alert('加载用户列表失败: ' + error.message);
+    }
+}
+
+// 移除密钥的用户分配
+async function removeKeyUser(keyId, userId, username) {
+    if (confirm(`确认取消用户 "${username}" 对此密钥的访问权限？`)) {
+        try {
+            await apiCall(`/admin/keys/${keyId}/users/${userId}`, { method: 'DELETE' });
+            if (window.loadKeys) loadKeys(window.currentKeysPage || 1);
+        } catch (error) {
+            alert('取消分配失败: ' + error.message);
+        }
+    }
+}
+
+// ==================== 用户管理功能 ====================
+
 // 全局变量：当前用户角色
 window.currentUserRole = null;
 
@@ -9,7 +87,7 @@ function initUserManagement() {
     // 在主内容区添加用户管理页面
     const mainContent = document.querySelector('.main-content');
     if (!mainContent) return;
-    
+
     const usersSection = document.createElement('div');
     usersSection.id = 'users-content';
     usersSection.className = 'content-section';
@@ -41,7 +119,7 @@ function initUserManagement() {
         <div id="users-pagination" class="pagination" style="margin-top: 16px;"></div>
     `;
     mainContent.appendChild(usersSection);
-    
+
     // 在侧边栏添加用户管理菜单
     const sidebar = document.querySelector('.sidebar-nav');
     if (sidebar) {
@@ -135,7 +213,7 @@ function showCreateUserModal() {
             <button type="submit" class="btn btn-primary">创建用户</button>
         </form>
     `;
-    
+
     document.getElementById('create-user-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -180,7 +258,7 @@ function showEditUserModal(userId, username, email, role, isActive) {
             <button type="submit" class="btn btn-primary">保存修改</button>
         </form>
     `;
-    
+
     document.getElementById('edit-user-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -217,18 +295,18 @@ function showResetPasswordModal(userId, username) {
             <button type="submit" class="btn btn-primary">重置密码</button>
         </form>
     `;
-    
+
     document.getElementById('reset-password-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
         const newPassword = fd.get('new_password');
         const confirmPassword = fd.get('confirm_password');
-        
+
         if (newPassword !== confirmPassword) {
             alert('两次输入的密码不一致');
             return;
         }
-        
+
         try {
             await apiCall(`/admin/users/${userId}/reset-password`, {
                 method: 'POST',
@@ -238,7 +316,7 @@ function showResetPasswordModal(userId, username) {
             alert('密码重置成功');
         } catch (error) {
             alert('重置失败: ' + error.message);
-       }
+        }
     };
     openModal();
 }
@@ -258,7 +336,7 @@ async function deleteUser(userId, username) {
 // 应用基于角色的界面控制
 function applyRoleBasedUI() {
     if (!window.currentUserRole) return;
-    
+
     if (window.currentUserRole === 'user') {
         // 普通用户：隐藏所有操作按钮
         // 隐藏添加按钮
@@ -268,10 +346,10 @@ function applyRoleBasedUI() {
                 btn.style.display = 'none';
             }
         });
-        
+
         // 隐藏删除、编辑等操作按钮（这些会在加载数据时动态生成，需要在加载后再次隐藏）
         hideActionButtons();
-        
+
         // 隐藏用户管理菜单
         const usersMenu = document.getElementById('users-menu');
         if (usersMenu) usersMenu.style.display = 'none';
@@ -285,7 +363,7 @@ function applyRoleBasedUI() {
 // 隐藏操作按钮（普通用户）
 function hideActionButtons() {
     if (window.currentUserRole !== 'user') return;
-    
+
     // 隐藏表格中的操作按钮
     setTimeout(() => {
         document.querySelectorAll('.btn-danger, .btn-warning, .btn-outline').forEach(btn => {
@@ -293,7 +371,7 @@ function hideActionButtons() {
                 btn.style.display = 'none';
             }
         });
-        
+
         // 隐藏添加权限、添加白名单等按钮
         document.querySelectorAll('.btn-xs').forEach(btn => {
             btn.style.display = 'none';
@@ -303,28 +381,28 @@ function hideActionButtons() {
 
 // 扩展原有的 showApp 函数
 const originalShowApp = window.showApp;
-window.showApp = function() {
+window.showApp = function () {
     if (originalShowApp) originalShowApp();
-    
+
     // 获取并保存用户角色
     if (window.currentUser && window.currentUser.role) {
         window.currentUserRole = window.currentUser.role;
     }
-    
+
     // 应用基于角色的UI控制
     applyRoleBasedUI();
 };
 
 // 扩展原有的 switchPage 函数
 const originalSwitchPage = window.switchPage;
-window.switchPage = function(page) {
+window.switchPage = function (page) {
     if (originalSwitchPage) originalSwitchPage(page);
-    
+
     // 如果切换到用户管理页面，加载用户列表
     if (page === 'users') {
         loadUsers();
     }
-    
+
     // 在切换页面后重新应用权限控制
     hideActionButtons();
 };
@@ -351,10 +429,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.currentUser = data.user;
                 window.currentUserRole = data.user.role;  // 保存角色
                 localStorage.setItem('authToken', window.authToken);
-                
+
                 // 初始化用户管理功能
                 initUserManagement();
-                
+
                 // 显示应用
                 if (window.showApp) window.showApp();
             } catch (error) {
@@ -362,10 +440,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    
+
     // 页面加载时初始化
     initUserManagement();
-    
+
     // 如果已登录，应用权限控制
     if (window.authToken && window.currentUser) {
         window.currentUserRole = window.currentUser.role;

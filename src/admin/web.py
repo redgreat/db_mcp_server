@@ -427,8 +427,10 @@ def build_admin_router(cfg: Config):
         page_size: int = 10,
         authorization: str = Header(None)
     ):
-        """列出访问密钥（需要登录，支持分页）"""
-        auth_service.get_current_user(authorization)  # 验证登录
+        """列出访问密钥（需要登录，支持分页，基于用户角色筛选）"""
+        current_user = auth_service.get_current_user(authorization)
+        user_id = current_user["user_id"]
+        user_role = current_user.get("role", "user")
         
         # 参数校验
         page = max(1, page)
@@ -438,14 +440,29 @@ def build_admin_router(cfg: Config):
         from sqlalchemy import Table, MetaData, func
         meta = MetaData()
         keys = Table("access_keys", meta, autoload_with=engine)
+        key_users = Table("access_key_users", meta, autoload_with=engine)
+        
         with Session(engine) as s:
-            # 获取总数
-            total = s.execute(select(func.count()).select_from(keys)).scalar()
-            
-            # 分页查询
-            rows = s.execute(
-                select(keys).offset(offset).limit(page_size)
-            ).mappings().all()
+            if user_role == "admin":
+                # 管理员：查看所有密钥
+                total = s.execute(select(func.count()).select_from(keys)).scalar()
+                rows = s.execute(
+                    select(keys).offset(offset).limit(page_size)
+                ).mappings().all()
+            else:
+                # 普通用户：只查看分配给自己的密钥
+                total = s.execute(
+                    select(func.count())
+                    .select_from(keys.join(key_users, keys.c.id == key_users.c.key_id))
+                    .where(key_users.c.user_id == user_id)
+                ).scalar()
+                rows = s.execute(
+                    select(keys)
+                    .join(key_users, keys.c.id == key_users.c.key_id)
+                    .where(key_users.c.user_id == user_id)
+                    .offset(offset)
+                    .limit(page_size)
+                ).mappings().all()
             
         return {
             "items": [dict(r) for r in rows],
@@ -542,6 +559,113 @@ def build_admin_router(cfg: Config):
         )
         
         logger.info(f"删除密钥: id={key_id} by {user_data['username']}")
+        return {"ok": True}
+    
+    # ==================== 密钥用户管理 ====================
+    
+    @router.get("/admin/keys/{key_id}/users")
+    def list_key_users(key_id: int, authorization: str = Header(None)):
+        """获取密钥已分配的用户列表（仅管理员）"""
+        auth_service.require_admin(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        key_users = Table("access_key_users", meta, autoload_with=engine)
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as s:
+            # JOIN 查询获取用户详细信息
+            query = (
+                select(
+                    admin_users.c.id,
+                    admin_users.c.username,
+                    admin_users.c.email,
+                    admin_users.c.role,
+                    key_users.c.created_at.label("assigned_at")
+                )
+                .join(key_users, admin_users.c.id == key_users.c.user_id)
+                .where(key_users.c.key_id == key_id)
+            )
+            rows = s.execute(query).mappings().all()
+            
+        return {"users": [dict(r) for r in rows]}
+    
+    @router.post("/admin/keys/{key_id}/users")
+    async def assign_users_to_key(
+        key_id: int,
+        request: Request,
+        authorization: str = Header(None)
+    ):
+        """为密钥分配用户（仅管理员）"""
+        current_user = auth_service.require_admin(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        key_users = Table("access_key_users", meta, autoload_with=engine)
+        
+        # 从请求体获取用户ID列表
+        body = await request.json()
+        user_ids = body if isinstance(body, list) else body.get("user_ids", [])
+        
+        with Session(engine) as s:
+            # 批量插入（忽略已存在的记录）
+            for user_id in user_ids:
+                try:
+                    s.execute(insert(key_users).values(
+                        key_id=key_id,
+                        user_id=user_id
+                    ))
+                except Exception:
+                    # 忽略重复插入错误
+                    pass
+            s.commit()
+        
+        # 记录系统日志
+        system_logger.log(
+            operation="assign_key_users",
+            resource_type="access_key",
+            user_id=current_user["user_id"],
+            username=current_user["username"],
+            resource_id=key_id,
+            details={"user_ids": user_ids}
+        )
+        
+        logger.info(f"为密钥 {key_id} 分配用户: {user_ids} by {current_user['username']}")
+        return {"ok": True}
+    
+    @router.delete("/admin/keys/{key_id}/users/{user_id}")
+    def remove_user_from_key(
+        key_id: int,
+        user_id: int,
+        authorization: str = Header(None)
+    ):
+        """取消密钥对某用户的分配（仅管理员）"""
+        current_user = auth_service.require_admin(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        key_users = Table("access_key_users", meta, autoload_with=engine)
+        
+        with Session(engine) as s:
+            s.execute(
+                delete(key_users).where(
+                    key_users.c.key_id == key_id,
+                    key_users.c.user_id == user_id
+                )
+            )
+            s.commit()
+        
+        # 记录系统日志
+        system_logger.log(
+            operation="remove_key_user",
+            resource_type="access_key",
+            user_id=current_user["user_id"],
+            username=current_user["username"],
+            resource_id=key_id,
+            details={"removed_user_id": user_id}
+        )
+        
+        logger.info(f"取消密钥 {key_id} 对用户 {user_id} 的分配 by {current_user['username']}")
         return {"ok": True}
     
     # ==================== 数据库连接管理 ====================

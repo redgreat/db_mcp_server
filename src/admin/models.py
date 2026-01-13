@@ -112,6 +112,17 @@ def ensure_schema(engine: Engine):
         Column("revoked", Boolean, default=False, index=True, comment="是否已撤销"),
     )
     
+    # 访问密钥用户关联表（多对多关系）
+    access_key_users = Table(
+        "access_key_users", meta,
+        Column("id", Integer, primary_key=True, comment="关联ID"),
+        Column("key_id", Integer, ForeignKey("access_keys.id", ondelete="CASCADE"), 
+               nullable=False, index=True, comment="访问密钥ID"),
+        Column("user_id", Integer, ForeignKey("admin_users.id", ondelete="CASCADE"), 
+               nullable=False, index=True, comment="用户ID"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="分配时间"),
+    )
+    
     # 创建所有表
     meta.create_all(engine)
 
