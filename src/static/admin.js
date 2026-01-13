@@ -310,7 +310,7 @@ async function loadKeys(page = 1) {
                         <div class="tag-container">${whitelistHtml}</div>
                         <button class="btn btn-xs btn-outline" onclick="showAddWhitelistModal(${key.id})">+ 添加IP</button>
                     </td>
-                    <td class="permissions-cell">
+                    <td class="permissions-cell admin-only-column">
                         <div class="tag-container">${assignedUsersHtml}</div>
                         ${window.currentUserRole === 'admin' ?
                     `<button class="btn btn-xs btn-outline" onclick="showAssignUsersModal(${key.id})">+ 分配用户</button>`
@@ -332,6 +332,11 @@ async function loadKeys(page = 1) {
 
         // 渲染分页器
         renderPagination('keys-pagination', keysRes.total, keysRes.page, keysRes.page_size, loadKeys);
+
+        // 重新应用权限控制（确保动态加载的"已分配用户"列正确显示）
+        if (window.applyRoleBasedUI) {
+            window.applyRoleBasedUI();
+        }
     } catch (error) {
         tbody.innerHTML = `<tr><td colspan="10">加载失败: ${error.message}</td></tr>`;
     }

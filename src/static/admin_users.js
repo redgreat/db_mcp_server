@@ -357,6 +357,12 @@ function applyRoleBasedUI() {
         // 隐藏审计日志菜单（普通用户不应看到）
         const auditMenu = document.getElementById('audit-menu');
         if (auditMenu) auditMenu.style.display = 'none';
+
+        // 隐藏访问密钥页面的"已分配用户"列
+        const adminOnlyColumns = document.querySelectorAll('.admin-only-column');
+        adminOnlyColumns.forEach(col => {
+            col.style.display = 'none';
+        });
     } else if (window.currentUserRole === 'admin') {
         // 管理员：显示用户管理菜单和审计日志菜单
         const usersMenu = document.getElementById('users-menu');
@@ -364,6 +370,12 @@ function applyRoleBasedUI() {
 
         const auditMenu = document.getElementById('audit-menu');
         if (auditMenu) auditMenu.style.display = 'flex';
+
+        // 显示访问密钥页面的"已分配用户"列
+        const adminOnlyColumns = document.querySelectorAll('.admin-only-column');
+        adminOnlyColumns.forEach(col => {
+            col.style.display = '';
+        });
     }
 }
 
@@ -412,6 +424,7 @@ window.switchPage = function (page) {
 
     // 在切换页面后重新应用权限控制
     hideActionButtons();
+    applyRoleBasedUI();  // 确保"已分配用户"列等元素的显示状态正确
 };
 
 // 扩展原有的登录处理
