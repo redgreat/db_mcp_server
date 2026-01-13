@@ -30,6 +30,23 @@ class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
 
+class CreateUserRequest(BaseModel):
+    """创建用户请求"""
+    username: str
+    password: str
+    email: Optional[str] = ""
+    role: str = "user"  # admin/user
+
+class UpdateUserRequest(BaseModel):
+    """更新用户请求"""
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    
+class ResetPasswordRequest(BaseModel):
+    """重置用户密码请求"""
+    new_password: str
+
+
 
 def build_admin_router(cfg: Config):
     """创建管理后台路由"""
@@ -82,16 +99,21 @@ def build_admin_router(cfg: Config):
             if not auth_service.verify_password(req.password, user["password_hash"]):
                 raise HTTPException(status_code=401, detail="用户名或密码错误")
             
-            # 生成token
-            token = auth_service.create_token(user["id"], user["username"])
+            # 生成token（包含角色信息）
+            token = auth_service.create_token(
+                user["id"], 
+                user["username"],
+                user.get("role", "user")  # 包含角色
+            )
             
-            logger.info(f"用户登录成功: {req.username}")
+            logger.info(f"用户登录成功: {req.username} (role={user.get('role', 'user')})")
             return {
                 "token": token,
                 "user": {
                     "id": user["id"],
                     "username": user["username"],
-                    "email": user["email"]
+                    "email": user["email"],
+                    "role": user.get("role", "user")  # 返回角色信息
                 }
             }
     
@@ -144,6 +166,249 @@ def build_admin_router(cfg: Config):
         
         return {"ok": True}
     
+    # ==================== 用户管理 ====================
+    
+    @router.get("/admin/users")
+    def list_users(
+        page: int = 1,
+        page_size: int = 10,
+        authorization: str = Header(None)
+    ):
+        """列出所有用户（仅管理员）"""
+        auth_service.require_admin(authorization)  # 仅管理员可访问
+        
+        # 参数校验
+        page = max(1, page)
+        page_size = min(max(1, page_size), 1000)
+        offset = (page - 1) * page_size
+        
+        from sqlalchemy import Table, MetaData, func
+        meta = MetaData()
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            # 获取总数
+            total = session.execute(select(func.count()).select_from(admin_users)).scalar()
+            
+            # 分页查询
+            rows = session.execute(
+                select(admin_users).offset(offset).limit(page_size)
+            ).mappings().all()
+            
+        # 不返回密码哈希
+        users = []
+        for r in rows:
+            user_dict = dict(r)
+            user_dict.pop("password_hash", None)
+            users.append(user_dict)
+        
+        return {
+            "items": users,
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        }
+    
+    @router.post("/admin/users")
+    def create_user(req: CreateUserRequest, authorization: str = Header(None)):
+        """创建新用户（仅管理员）"""
+        current_user = auth_service.require_admin(authorization)
+        
+        # 验证角色值
+        if req.role not in ["admin", "user"]:
+            raise HTTPException(status_code=400, detail="角色必须是 admin 或 user")
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            # 检查用户名是否已存在
+            existing = session.execute(
+                select(admin_users).where(admin_users.c.username == req.username)
+            ).first()
+            
+            if existing:
+                raise HTTPException(status_code=400, detail="用户名已存在")
+            
+            # 创建用户
+            password_hash = auth_service.hash_password(req.password)
+            result = session.execute(
+                insert(admin_users).values(
+                    username=req.username,
+                    password_hash=password_hash,
+                    email=req.email,
+                    role=req.role,
+                    is_active=True
+                )
+            )
+            session.commit()
+            
+            # 获取新创建的用户ID
+            new_user_id = result.lastrowid
+        
+        # 记录系统日志
+        system_logger.log(
+            operation="create_user",
+            resource_type="admin_user",
+            user_id=current_user["user_id"],
+            username=current_user["username"],
+            resource_id=new_user_id,
+            details={"username": req.username, "role": req.role, "email": req.email}
+        )
+        
+        logger.info(f"创建用户: {req.username} (role={req.role}) by {current_user['username']}")
+        return {"ok": True, "user_id": new_user_id}
+    
+    @router.put("/admin/users/{user_id}")
+    def update_user(
+        user_id: int,
+        req: UpdateUserRequest,
+        authorization: str = Header(None)
+    ):
+        """更新用户信息（仅管理员）"""
+        current_user = auth_service.require_admin(authorization)
+        
+        # 验证角色值
+        if req.role is not None and req.role not in ["admin", "user"]:
+            raise HTTPException(status_code=400, detail="角色必须是 admin 或 user")
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            # 检查用户是否存在
+            existing = session.execute(
+                select(admin_users).where(admin_users.c.id == user_id)
+            ).first()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            
+            # 构建更新字段
+            update_values = {}
+            if req.role is not None:
+                update_values["role"] = req.role
+            if req.is_active is not None:
+                update_values["is_active"] = req.is_active
+            
+            if not update_values:
+                raise HTTPException(status_code=400, detail="没有需要更新的字段")
+            
+            # 更新用户
+            session.execute(
+                update(admin_users)
+                .where(admin_users.c.id == user_id)
+                .values(**update_values)
+            )
+            session.commit()
+        
+        # 记录系统日志
+        system_logger.log(
+            operation="update_user",
+            resource_type="admin_user",
+            user_id=current_user["user_id"],
+            username=current_user["username"],
+            resource_id=user_id,
+            details=update_values
+        )
+        
+        logger.info(f"更新用户: id={user_id} {update_values} by {current_user['username']}")
+        return {"ok": True}
+    
+    @router.delete("/admin/users/{user_id}")
+    def delete_user(user_id: int, authorization: str = Header(None)):
+        """删除用户（仅管理员）"""
+        current_user = auth_service.require_admin(authorization)
+        
+        # 不能删除自己
+        if user_id == current_user["user_id"]:
+            raise HTTPException(status_code=400, detail="不能删除当前登录用户")
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            # 检查用户是否存在
+            existing = session.execute(
+                select(admin_users).where(admin_users.c.id == user_id)
+            ).mappings().first()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            
+            deleted_username = existing["username"]
+            
+            # 删除用户
+            session.execute(
+                delete(admin_users).where(admin_users.c.id == user_id)
+            )
+            session.commit()
+        
+        # 记录系统日志
+        system_logger.log(
+            operation="delete_user",
+            resource_type="admin_user",
+            user_id=current_user["user_id"],
+            username=current_user["username"],
+            resource_id=user_id,
+            details={"username": deleted_username}
+        )
+        
+        logger.info(f"删除用户: id={user_id} ({deleted_username}) by {current_user['username']}")
+        return {"ok": True}
+    
+    @router.post("/admin/users/{user_id}/reset-password")
+    def reset_user_password(
+        user_id: int,
+        req: ResetPasswordRequest,
+        authorization: str = Header(None)
+    ):
+        """重置用户密码（仅管理员）"""
+        current_user = auth_service.require_admin(authorization)
+        
+        if not req.new_password:
+            raise HTTPException(status_code=400, detail="新密码不能为空")
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        admin_users = Table("admin_users", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            # 检查用户是否存在
+            existing = session.execute(
+                select(admin_users).where(admin_users.c.id == user_id)
+            ).mappings().first()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            
+            target_username = existing["username"]
+            
+            # 重置密码
+            new_hash = auth_service.hash_password(req.new_password)
+            session.execute(
+                update(admin_users)
+                .where(admin_users.c.id == user_id)
+                .values(password_hash=new_hash)
+            )
+            session.commit()
+        
+        # 记录系统日志
+        system_logger.log(
+            operation="reset_password",
+            resource_type="admin_user",
+            user_id=current_user["user_id"],
+            username=current_user["username"],
+            resource_id=user_id,
+            details={"target_username": target_username}
+        )
+        
+        logger.info(f"重置密码: user_id={user_id} ({target_username}) by {current_user['username']}")
+        return {"ok": True}
+    
     # ==================== 首页 ====================
     
     @router.get("/admin", response_class=HTMLResponse)
@@ -191,8 +456,8 @@ def build_admin_router(cfg: Config):
     
     @router.post("/admin/keys")
     def create_key(req: CreateKeyRequest, authorization: str = Header(None)):
-        """创建访问密钥（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
+        """创建访问密钥（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
@@ -224,8 +489,8 @@ def build_admin_router(cfg: Config):
         request: Request,
         authorization: str = Header(None)
     ):
-        """切换访问密钥状态（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
+        """切换访问密钥状态（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         # 从请求体获取 enabled 参数
         body = await request.json()
@@ -257,8 +522,8 @@ def build_admin_router(cfg: Config):
     
     @router.delete("/admin/keys/{key_id}")
     def delete_key(key_id: int, authorization: str = Header(None)):
-        """删除访问密钥（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
+        """删除访问密钥（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
@@ -333,8 +598,8 @@ def build_admin_router(cfg: Config):
         description: Optional[str] = "",
         authorization: str = Header(None)
     ):
-        """创建数据库连接（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
+        """创建数据库连接（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         # 加密密码 (使用 master_key)
         pwd_enc = encrypt_text(password, cfg.security.master_key)
@@ -369,8 +634,8 @@ def build_admin_router(cfg: Config):
 
     @router.delete("/admin/connections/{conn_id}")
     def delete_connection(conn_id: int, authorization: str = Header(None)):
-        """删除数据库连接（需要登录）"""
-        auth_service.get_current_user(authorization)
+        """删除数据库连接（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
@@ -383,8 +648,8 @@ def build_admin_router(cfg: Config):
         system_logger.log(
             operation="delete_connection",
             resource_type="connection",
-            user_id=auth_service.get_current_user(authorization)["user_id"],
-            username=auth_service.get_current_user(authorization)["username"],
+            user_id=user_data["user_id"],
+            username=user_data["username"],
             resource_id=conn_id
         )
         
@@ -412,8 +677,8 @@ def build_admin_router(cfg: Config):
         allow_ddl: bool = False,
         authorization: str = Header(None)
     ):
-        """创建权限（关联到连接 ID）"""
-        user_data = auth_service.get_current_user(authorization)
+        """创建权限（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
@@ -446,8 +711,8 @@ def build_admin_router(cfg: Config):
     
     @router.delete("/admin/permissions/{perm_id}")
     def delete_permission(perm_id: int, authorization: str = Header(None)):
-        """删除权限（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
+        """删除权限（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         from sqlalchemy import Table, MetaData
         meta = MetaData()
@@ -491,14 +756,14 @@ def build_admin_router(cfg: Config):
         description: str = "",
         authorization: str = Header(None)
     ):
-        """为指定APPKEY添加白名单规则（需要登录）
+        """为指定APPKEY添加白名单规则（仅管理员）
         
         Args:
             key_id: 访问密钥ID
             cidr: CIDR格式，如 '192.168.1.0/24' 或 '10.0.0.1'
             description: 描述
         """
-        user_data = auth_service.get_current_user(authorization)
+        user_data = auth_service.require_admin(authorization)
         
         success = ip_checker.add_whitelist(key_id, cidr, description)
         if not success:
@@ -518,8 +783,8 @@ def build_admin_router(cfg: Config):
     
     @router.delete("/admin/whitelist/{whitelist_id}")
     def delete_whitelist(whitelist_id: int, authorization: str = Header(None)):
-        """删除白名单规则（需要登录）"""
-        user_data = auth_service.get_current_user(authorization)
+        """删除白名单规则（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
         
         success = ip_checker.delete_whitelist(whitelist_id)
         if not success:

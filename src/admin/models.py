@@ -13,102 +13,103 @@ def ensure_schema(engine: Engine):
     # 用户表（Web管理端登录）
     admin_users = Table(
         "admin_users", meta,
-        Column("id", Integer, primary_key=True),
-        Column("username", String(100), nullable=False, unique=True),
-        Column("password_hash", String(255), nullable=False),
-        Column("email", String(255), nullable=True),
-        Column("is_active", Boolean, default=True),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
-        Column("updated_at", DateTime(timezone=True), onupdate=func.now()),
+        Column("id", Integer, primary_key=True, comment="用户ID"),
+        Column("username", String(100), nullable=False, unique=True, comment="登录用户名"),
+        Column("password_hash", String(255), nullable=False, comment="密码哈希值(bcrypt+pepper)"),
+        Column("email", String(255), nullable=True, comment="邮箱地址"),
+        Column("role", String(20), nullable=False, server_default="user", index=True, comment="用户角色: admin=管理员, user=普通用户"),
+        Column("is_active", Boolean, default=True, index=True, comment="账号是否启用"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
+        Column("updated_at", DateTime(timezone=True), onupdate=func.now(), comment="最后更新时间"),
     )
     
     # 访问密钥表
     access_keys = Table(
         "access_keys", meta,
-        Column("id", Integer, primary_key=True),
-        Column("ak", String(128), nullable=False, unique=True),
-        Column("description", String(255), nullable=True),
-        Column("enabled", Boolean, default=True),
-        Column("created_by", Integer, ForeignKey("admin_users.id"), nullable=True),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
+        Column("id", Integer, primary_key=True, comment="密钥ID"),
+        Column("ak", String(128), nullable=False, unique=True, comment="访问密钥(Access Key)"),
+        Column("description", String(255), nullable=True, comment="密钥描述"),
+        Column("enabled", Boolean, default=True, index=True, comment="是否启用"),
+        Column("created_by", Integer, ForeignKey("admin_users.id"), nullable=True, index=True, comment="创建者用户ID"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
     )
     
     # 数据库连接表 (包含实例、库名、账号、加密密码)
     db_connections = Table(
         "db_connections", meta,
-        Column("id", Integer, primary_key=True),
-        Column("name", String(100), nullable=False, unique=True), # 连接名称
-        Column("host", String(255), nullable=False),
-        Column("port", Integer, nullable=False),
-        Column("db_type", String(20), nullable=False, server_default="mysql"),
-        Column("database", String(255), nullable=False), # 数据库名
-        Column("username", String(255), nullable=False),
-        Column("password_enc", Text, nullable=False),    # 加密存储的密码
-        Column("description", String(255), nullable=True),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
+        Column("id", Integer, primary_key=True, comment="连接ID"),
+        Column("name", String(100), nullable=False, unique=True, comment="连接名称(唯一标识)"),
+        Column("host", String(255), nullable=False, comment="数据库主机地址"),
+        Column("port", Integer, nullable=False, comment="数据库端口"),
+        Column("db_type", String(20), nullable=False, server_default="mysql", index=True, comment="数据库类型: mysql/postgresql等"),
+        Column("database", String(255), nullable=False, comment="数据库名"),
+        Column("username", String(255), nullable=False, comment="数据库用户名"),
+        Column("password_enc", Text, nullable=False, comment="加密存储的密码"),
+        Column("description", String(255), nullable=True, comment="连接描述"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
     )
     
     # 权限表 (关联到 db_connections)
     permissions = Table(
         "permissions", meta,
-        Column("id", Integer, primary_key=True),
-        Column("key_id", Integer, ForeignKey("access_keys.id"), nullable=False),
-        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=False),
-        Column("select_only", Boolean, default=True),
-        Column("allow_ddl", Boolean, default=False),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
+        Column("id", Integer, primary_key=True, comment="权限ID"),
+        Column("key_id", Integer, ForeignKey("access_keys.id"), nullable=False, index=True, comment="访问密钥ID"),
+        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=False, index=True, comment="数据库连接ID"),
+        Column("select_only", Boolean, default=True, comment="是否仅查询权限(SELECT)"),
+        Column("allow_ddl", Boolean, default=False, comment="是否允许DDL操作(CREATE/DROP/ALTER)"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
     )
     
     # IP白名单表（绑定到access_key）
     whitelist = Table(
         "whitelist", meta,
-        Column("id", Integer, primary_key=True),
-        Column("key_id", Integer, ForeignKey("access_keys.id"), nullable=False),  # 关联到访问密钥
-        Column("cidr", String(64), nullable=False),  # CIDR格式的IP或网段
-        Column("description", String(255), nullable=True),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
+        Column("id", Integer, primary_key=True, comment="白名单ID"),
+        Column("key_id", Integer, ForeignKey("access_keys.id"), nullable=False, index=True, comment="访问密钥ID"),
+        Column("cidr", String(64), nullable=False, comment="IP地址或CIDR网段"),
+        Column("description", String(255), nullable=True, comment="白名单描述"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
     )
     
     # 审计日志表
     audit_logs = Table(
         "audit_logs", meta,
-        Column("id", BigInteger, primary_key=True),
-        Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True),
-        Column("access_key", String(128), nullable=True, index=True),
-        Column("client_ip", String(45), nullable=True),
-        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=True),
-        Column("operation", String(50), nullable=False),  # query/transaction/metadata
-        Column("sql_text", Text, nullable=True),
-        Column("rows_affected", Integer, nullable=True),
-        Column("duration_ms", Integer, nullable=True),
-        Column("status", String(20), nullable=False),  # success/error
-        Column("error_message", Text, nullable=True),
-        Column("metadata", JSON, nullable=True),  # 额外信息
+        Column("id", BigInteger, primary_key=True, comment="日志ID"),
+        Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True, comment="操作时间"),
+        Column("access_key", String(128), nullable=True, index=True, comment="访问密钥"),
+        Column("client_ip", String(45), nullable=True, index=True, comment="客户端IP地址"),
+        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=True, index=True, comment="数据库连接ID"),
+        Column("operation", String(50), nullable=False, index=True, comment="操作类型: query/transaction/metadata"),
+        Column("sql_text", Text, nullable=True, comment="执行的SQL语句"),
+        Column("rows_affected", Integer, nullable=True, comment="影响行数"),
+        Column("duration_ms", Integer, nullable=True, comment="执行耗时(毫秒)"),
+        Column("status", String(20), nullable=False, index=True, comment="执行状态: success/error"),
+        Column("error_message", Text, nullable=True, comment="错误信息"),
+        Column("metadata", JSON, nullable=True, comment="额外元数据信息"),
     )
     
     # 系统操作日志表
     system_logs = Table(
         "system_logs", meta,
-        Column("id", BigInteger, primary_key=True),
-        Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True),
-        Column("user_id", Integer, ForeignKey("admin_users.id"), nullable=True),
-        Column("username", String(100), nullable=True),
-        Column("operation", String(50), nullable=False, index=True),  # create_key/delete_key等
-        Column("resource_type", String(50), nullable=False, index=True),  # access_key/permission/whitelist/connection
-        Column("resource_id", Integer, nullable=True),
-        Column("details", JSON, nullable=True),  # 操作详情
-        Column("client_ip", String(45), nullable=True),
+        Column("id", BigInteger, primary_key=True, comment="日志ID"),
+        Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True, comment="操作时间"),
+        Column("user_id", Integer, ForeignKey("admin_users.id"), nullable=True, index=True, comment="操作用户ID"),
+        Column("username", String(100), nullable=True, comment="操作用户名"),
+        Column("operation", String(50), nullable=False, index=True, comment="操作类型: create_key/delete_key/create_user等"),
+        Column("resource_type", String(50), nullable=False, index=True, comment="资源类型: access_key/permission/whitelist/connection/admin_user"),
+        Column("resource_id", Integer, nullable=True, comment="资源ID"),
+        Column("details", JSON, nullable=True, comment="操作详情(JSON格式)"),
+        Column("client_ip", String(45), nullable=True, comment="客户端IP地址"),
     )
     
     # 会话表（用于JWT认证的可选黑名单）
     sessions = Table(
         "sessions", meta,
-        Column("id", Integer, primary_key=True),
-        Column("user_id", Integer, ForeignKey("admin_users.id"), nullable=False),
-        Column("token_jti", String(255), nullable=False, unique=True, index=True),
-        Column("created_at", DateTime(timezone=True), server_default=func.now()),
-        Column("expires_at", DateTime(timezone=True), nullable=False),
-        Column("revoked", Boolean, default=False),
+        Column("id", Integer, primary_key=True, comment="会话ID"),
+        Column("user_id", Integer, ForeignKey("admin_users.id"), nullable=False, index=True, comment="用户ID"),
+        Column("token_jti", String(255), nullable=False, unique=True, index=True, comment="JWT Token唯一标识"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
+        Column("expires_at", DateTime(timezone=True), nullable=False, index=True, comment="过期时间"),
+        Column("revoked", Boolean, default=False, index=True, comment="是否已撤销"),
     )
     
     # 创建所有表
@@ -167,6 +168,7 @@ def create_default_admin(engine: Engine, master_key: str = None, username: str =
                     username=username,
                     password_hash=password_hash,
                     email=f"{username}@localhost",
+                    role="admin",  # 设置为管理员角色
                     is_active=True
                 )
             )

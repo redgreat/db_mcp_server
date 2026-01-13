@@ -44,12 +44,13 @@ class AuthService:
         peppered_password = self._get_peppered_password(password)
         return bcrypt.checkpw(peppered_password, password_hash.encode('utf-8'))
     
-    def create_token(self, user_id: int, username: str) -> str:
+    def create_token(self, user_id: int, username: str, role: str = "user") -> str:
         """创建JWT token
         
         Args:
             user_id: 用户ID
             username: 用户名
+            role: 用户角色 (admin/user)
             
         Returns:
             JWT token字符串
@@ -58,6 +59,7 @@ class AuthService:
         payload = {
             "user_id": user_id,
             "username": username,
+            "role": role,
             "iat": now,
             "exp": now + timedelta(seconds=self.session_timeout),
             "jti": f"{user_id}_{int(now.timestamp())}"
@@ -106,3 +108,20 @@ class AuthService:
         
         token = parts[1]
         return self.decode_token(token)
+    
+    def require_admin(self, authorization: str = Header(None)) -> Dict[str, Any]:
+        """检查当前用户是否为管理员
+        
+        Args:
+            authorization: Authorization header (Bearer token)
+            
+        Returns:
+            用户信息字典（仅当用户为管理员时）
+            
+        Raises:
+            HTTPException: 未认证、token无效或权限不足
+        """
+        user = self.get_current_user(authorization)
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        return user
