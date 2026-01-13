@@ -936,7 +936,7 @@ def build_admin_router(cfg: Config):
         operation: Optional[str] = None,
         authorization: str = Header(None)
     ):
-        """查询审计日志（需要登录，支持分页）
+        """查询审计日志（仅管理员，支持分页）
         
         Args:
             page: 页码（从1开始）
@@ -944,7 +944,7 @@ def build_admin_router(cfg: Config):
             access_key: 按访问密钥过滤（可选）
             operation: 按操作类型过滤（可选）
         """
-        auth_service.get_current_user(authorization)
+        auth_service.require_admin(authorization)  # 仅管理员可访问
         
         # 参数校验
         page = max(1, page)
@@ -988,7 +988,7 @@ def build_admin_router(cfg: Config):
         resource_type: Optional[str] = None,
         authorization: str = Header(None)
     ):
-        """查询系统操作日志（需要登录，支持分页）
+        """查询系统操作日志（仅管理员，支持分页）
         
         Args:
             page: 页码（从1开始）
@@ -996,7 +996,7 @@ def build_admin_router(cfg: Config):
             operation: 按操作类型过滤（可选）
             resource_type: 按资源类型过滤（可选）
         """
-        auth_service.get_current_user(authorization)
+        auth_service.require_admin(authorization)  # 仅管理员可访问
         
         # 参数校验
         page = max(1, page)
