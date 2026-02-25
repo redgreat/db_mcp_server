@@ -188,6 +188,10 @@ MCP_TOOLS = [
                     "type": "string",
                     "enum": ["markdown", "pdf"],
                     "description": "输出格式，默认 markdown。选择 pdf 时会生成 PDF 文件"
+                },
+                "save_path": {
+                    "type": "string",
+                    "description": "可选。本地保存路径（绝对路径）。如果提供，服务器将直接把文件保存到此路径。"
                 }
             },
             "required": ["connection_id"]
@@ -225,6 +229,10 @@ MCP_TOOLS = [
                     "type": "string",
                     "enum": ["markdown", "pdf"],
                     "description": "输出格式，默认 markdown。选择 pdf 时会生成包含图表源码的 PDF 文件"
+                },
+                "save_path": {
+                    "type": "string",
+                    "description": "可选。本地保存路径（绝对路径）。如果提供，服务器将直接把文件保存到此路径。"
                 }
             },
             "required": ["connection_id"]
@@ -254,6 +262,10 @@ MCP_TOOLS = [
                     "type": "string",
                     "enum": ["markdown", "pdf"],
                     "description": "输出格式，默认 markdown。选择 pdf 时会生成包含图表源码的 PDF 文件"
+                },
+                "save_path": {
+                    "type": "string",
+                    "description": "可选。本地保存路径（绝对路径）。如果提供，服务器将直接把文件保存到此路径。"
                 }
             },
             "required": ["connection_id"]

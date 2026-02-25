@@ -227,10 +227,12 @@ def generate_er_text_description(eng: Engine, database: str, db_type: str = "mys
 
 def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
                          include_columns: bool = True,
-                         include_implicit: bool = True) -> Dict[str, Any]:
+                         include_implicit: bool = True,
+                         save_path: Optional[str] = None) -> Dict[str, Any]:
     """生成 PDF 格式的 ER 图报告，返回 base64 编码的 PDF 内容"""
     from fpdf import FPDF
     from .db_doc_tool import _find_cjk_font
+    import os
     
     logger = logging.getLogger(__name__)
     
@@ -300,11 +302,24 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     pdf.multi_cell(0, 5, mermaid_data["mermaid"], border=1, fill=True)
 
     pdf_bytes = pdf.output()
+    
+    saved_to = None
+    if save_path:
+        # 确保目录存在
+        save_dir = os.path.dirname(os.path.abspath(save_path))
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+        with open(save_path, 'wb') as f:
+            f.write(pdf_bytes)
+        saved_to = os.path.abspath(save_path)
+        logger.info(f"ER 图报告已保存到本地: {saved_to}")
+
     pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     return {
         "filename": filename,
         "size_bytes": len(pdf_bytes),
         "mermaid_code": mermaid_data["mermaid"],
-        "pdf_base64": pdf_base64
+        "pdf_base64": pdf_base64,
+        "saved_to": saved_to
     }

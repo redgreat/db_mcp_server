@@ -310,7 +310,7 @@ def _find_cjk_font() -> Optional[str]:
     return None
 
 
-def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql") -> Dict[str, Any]:
+def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None) -> Dict[str, Any]:
     """生成 PDF 格式的数据库说明文档，返回 base64 编码的 PDF 内容"""
     from fpdf import FPDF
     import base64
@@ -387,6 +387,18 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql") -> Dic
             pdf.cell(0, 6, stripped, new_x="LMARGIN", new_y="NEXT")
 
     pdf_bytes = pdf.output()
+    
+    saved_to = None
+    if save_path:
+        # 确保目录存在
+        save_dir = os.path.dirname(os.path.abspath(save_path))
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+        with open(save_path, 'wb') as f:
+            f.write(pdf_bytes)
+        saved_to = os.path.abspath(save_path)
+        logger.info(f"PDF 已保存到本地: {saved_to}")
+
     pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     return {
@@ -394,5 +406,6 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql") -> Dic
         "size_bytes": len(pdf_bytes),
         "table_count": len(get_all_tables_with_comments(eng, database, db_type)),
         "pdf_base64": pdf_base64,
-        "markdown_content": md_content
+        "markdown_content": md_content,
+        "saved_to": saved_to
     }

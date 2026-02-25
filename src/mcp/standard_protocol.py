@@ -554,8 +554,10 @@ async def execute_mcp_tool(
             from ..tools.db_doc_tool import generate_db_doc_markdown, export_db_doc_pdf
             database = arguments.get("database") or conn_row["database"]
             fmt = arguments.get("format", "markdown")
+            save_path = arguments.get("save_path")
+            
             if fmt == "pdf":
-                pdf_result = export_db_doc_pdf(engine, database, conn_row["db_type"])
+                pdf_result = export_db_doc_pdf(engine, database, conn_row["db_type"], save_path)
                 duration_ms = int((time.time() - start_time) * 1000)
                 audit_logger.log(
                     operation=f"mcp_{tool_name}",
@@ -565,27 +567,34 @@ async def execute_mcp_tool(
                     connection_id=connection_id,
                     duration_ms=duration_ms
                 )
-                return {
-                    "content": [
-                        {
-                            "type": "resource",
-                            "resource": {
-                                "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
-                                "mimeType": "application/pdf",
-                                "blob": pdf_result["pdf_base64"]
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": json.dumps({
-                                "filename": pdf_result["filename"],
-                                "size_bytes": pdf_result["size_bytes"],
-                                "table_count": pdf_result["table_count"],
-                                "message": f"PDF 文档已生成：{pdf_result['filename']}（{pdf_result['size_bytes']} 字节），包含 {pdf_result['table_count']} 张表"
-                            }, ensure_ascii=False)
-                        }
-                    ]
+                
+                resp_content = []
+                # 依然返回资源以便界面预览
+                resp_content.append({
+                    "type": "resource",
+                    "resource": {
+                        "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
+                        "mimeType": "application/pdf",
+                        "blob": pdf_result["pdf_base64"]
+                    }
+                })
+                
+                msg_body = {
+                    "filename": pdf_result["filename"],
+                    "size_bytes": pdf_result["size_bytes"],
+                    "table_count": pdf_result["table_count"],
+                    "message": f"PDF 文档已生成：{pdf_result['filename']}（{pdf_result['size_bytes']} 字节）"
                 }
+                if pdf_result.get("saved_to"):
+                    msg_body["saved_to"] = pdf_result["saved_to"]
+                    msg_body["message"] += f"，已自动保存到本地：{pdf_result['saved_to']}"
+                
+                resp_content.append({
+                    "type": "text",
+                    "text": json.dumps(msg_body, ensure_ascii=False)
+                })
+                
+                return {"content": resp_content}
             else:
                 md = generate_db_doc_markdown(engine, database, conn_row["db_type"])
                 result = {"format": "markdown", "content": md}
@@ -597,36 +606,42 @@ async def execute_mcp_tool(
             include_implicit = arguments.get("include_implicit", True)
             output_type = arguments.get("output_type", "both")
             fmt = arguments.get("format", "markdown")
+            save_path = arguments.get("save_path")
             
             if fmt == "pdf":
                 pdf_result = export_er_report_pdf(
-                    engine, database, conn_row["db_type"], include_columns, include_implicit
+                    engine, database, conn_row["db_type"], include_columns, include_implicit, save_path
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
                 audit_logger.log(
                     operation=f"mcp_{tool_name}", status="success", access_key=access_key,
                     client_ip=client_ip, connection_id=connection_id, duration_ms=duration_ms
                 )
-                return {
-                    "content": [
-                        {
-                            "type": "resource",
-                            "resource": {
-                                "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
-                                "mimeType": "application/pdf",
-                                "blob": pdf_result["pdf_base64"]
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": json.dumps({
-                                "filename": pdf_result["filename"],
-                                "size_bytes": pdf_result["size_bytes"],
-                                "message": f"ER 图报告已生成：{pdf_result['filename']}"
-                            }, ensure_ascii=False)
-                        }
-                    ]
+                
+                resp_content = []
+                resp_content.append({
+                    "type": "resource",
+                    "resource": {
+                        "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
+                        "mimeType": "application/pdf",
+                        "blob": pdf_result["pdf_base64"]
+                    }
+                })
+                
+                msg_body = {
+                    "filename": pdf_result["filename"],
+                    "size_bytes": pdf_result["size_bytes"],
+                    "message": f"ER 图报告已生成：{pdf_result['filename']}"
                 }
+                if pdf_result.get("saved_to"):
+                    msg_body["saved_to"] = pdf_result["saved_to"]
+                    msg_body["message"] += f"，已自动保存到本地：{pdf_result['saved_to']}"
+                
+                resp_content.append({
+                    "type": "text",
+                    "text": json.dumps(msg_body, ensure_ascii=False)
+                })
+                return {"content": resp_content}
             
             result = {}
             if output_type in ("mermaid", "both"):
@@ -643,34 +658,40 @@ async def execute_mcp_tool(
             database = arguments.get("database") or conn_row["database"]
             output_type = arguments.get("output_type", "both")
             fmt = arguments.get("format", "markdown")
+            save_path = arguments.get("save_path")
             
             if fmt == "pdf":
-                pdf_result = export_dataflow_report_pdf(engine, database, conn_row["db_type"])
+                pdf_result = export_dataflow_report_pdf(engine, database, conn_row["db_type"], save_path)
                 duration_ms = int((time.time() - start_time) * 1000)
                 audit_logger.log(
                     operation=f"mcp_{tool_name}", status="success", access_key=access_key,
                     client_ip=client_ip, connection_id=connection_id, duration_ms=duration_ms
                 )
-                return {
-                    "content": [
-                        {
-                            "type": "resource",
-                            "resource": {
-                                "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
-                                "mimeType": "application/pdf",
-                                "blob": pdf_result["pdf_base64"]
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": json.dumps({
-                                "filename": pdf_result["filename"],
-                                "size_bytes": pdf_result["size_bytes"],
-                                "message": f"数据流报告已生成：{pdf_result['filename']}"
-                            }, ensure_ascii=False)
-                        }
-                    ]
+                
+                resp_content = []
+                resp_content.append({
+                    "type": "resource",
+                    "resource": {
+                        "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
+                        "mimeType": "application/pdf",
+                        "blob": pdf_result["pdf_base64"]
+                    }
+                })
+                
+                msg_body = {
+                    "filename": pdf_result["filename"],
+                    "size_bytes": pdf_result["size_bytes"],
+                    "message": f"数据流报告已生成：{pdf_result['filename']}"
                 }
+                if pdf_result.get("saved_to"):
+                    msg_body["saved_to"] = pdf_result["saved_to"]
+                    msg_body["message"] += f"，已自动保存到本地：{pdf_result['saved_to']}"
+                
+                resp_content.append({
+                    "type": "text",
+                    "text": json.dumps(msg_body, ensure_ascii=False)
+                })
+                return {"content": resp_content}
 
             result = {}
             if output_type in ("mermaid", "both"):
