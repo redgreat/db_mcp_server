@@ -235,11 +235,88 @@ def generate_db_doc_markdown(eng: Engine, database: str, db_type: str = "mysql")
     return "\n".join(lines)
 
 
+def _find_cjk_font() -> Optional[str]:
+    """搜索系统中可用的中文字体文件，返回字体文件路径"""
+    import platform
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # 按优先级排列的中文字体文件
+    cjk_font_names = [
+        "simhei.ttf",           # 黑体
+        "simsun.ttc",           # 宋体
+        "msyh.ttc",             # 微软雅黑
+        "msyh.ttf",             # 微软雅黑 (ttf版)
+        "msyhbd.ttc",           # 微软雅黑粗体
+        "NotoSansCJKsc-Regular.ttf",   # Noto Sans CJK
+        "NotoSansSC-Regular.ttf",      # Noto Sans SC
+        "wqy-microhei.ttc",            # 文泉驿微米黑
+        "wqy-zenhei.ttc",              # 文泉驿正黑
+        "DroidSansFallbackFull.ttf",   # Droid Sans Fallback
+    ]
+
+    # 系统字体目录
+    system = platform.system()
+    font_dirs = []
+
+    if system == "Windows":
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        font_dirs.append(os.path.join(windir, "Fonts"))
+        # 用户字体目录
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        if local_app:
+            font_dirs.append(os.path.join(local_app, "Microsoft", "Windows", "Fonts"))
+    elif system == "Darwin":
+        font_dirs.extend([
+            "/System/Library/Fonts",
+            "/Library/Fonts",
+            os.path.expanduser("~/Library/Fonts"),
+        ])
+    else:
+        font_dirs.extend([
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            "/usr/share/fonts/truetype",
+            "/usr/share/fonts/opentype",
+            os.path.expanduser("~/.local/share/fonts"),
+            os.path.expanduser("~/.fonts"),
+        ])
+
+    # 项目内置字体目录优先
+    project_font_dir = os.path.join(os.path.dirname(__file__), "..", "static", "fonts")
+    if os.path.isdir(project_font_dir):
+        font_dirs.insert(0, project_font_dir)
+
+    for font_dir in font_dirs:
+        if not os.path.isdir(font_dir):
+            continue
+        # 先精确匹配优先列表
+        for font_name in cjk_font_names:
+            font_path = os.path.join(font_dir, font_name)
+            if os.path.isfile(font_path):
+                logger.info(f"找到中文字体: {font_path}")
+                return font_path
+        # 递归搜索（针对 Linux 字体子目录结构）
+        if system not in ("Windows", "Darwin"):
+            for root, _dirs, files in os.walk(font_dir):
+                for font_name in cjk_font_names:
+                    if font_name in files:
+                        font_path = os.path.join(root, font_name)
+                        logger.info(f"找到中文字体: {font_path}")
+                        return font_path
+
+    logger.warning("未找到系统中文字体，PDF 可能无法显示中文")
+    return None
+
+
 def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql",
                       output_dir: str = "data") -> Dict[str, Any]:
     """生成 PDF 格式的数据库说明文档"""
     from fpdf import FPDF
-    import unicodedata
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     md_content = generate_db_doc_markdown(eng, database, db_type)
 
@@ -251,31 +328,42 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql",
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    font_dir = os.path.join(os.path.dirname(__file__), "..", "static", "fonts")
+    # 查找并注册中文字体
     has_cjk_font = False
-    if os.path.exists(font_dir):
-        for f in os.listdir(font_dir):
-            if f.lower().endswith(".ttf"):
-                pdf.add_font("CJK", "", os.path.join(font_dir, f), uni=True)
-                has_cjk_font = True
-                break
+    font_path = _find_cjk_font()
+    if font_path:
+        try:
+            pdf.add_font("CJK", "", font_path, uni=True)
+            pdf.add_font("CJKb", "", font_path, uni=True)
+            has_cjk_font = True
+            logger.info(f"已加载中文字体: {font_path}")
+        except Exception as e:
+            logger.warning(f"加载中文字体失败: {e}，将尝试回退方案")
+            has_cjk_font = False
+
+    if not has_cjk_font:
+        raise RuntimeError(
+            "未找到可用的中文字体，无法生成包含中文的 PDF。"
+            "请安装中文字体（如 SimHei、SimSun、微软雅黑）或将 .ttf 字体文件放入 src/static/fonts/ 目录。"
+        )
 
     pdf.add_page()
 
     def set_font(style="", size=10):
-        if has_cjk_font:
-            pdf.set_font("CJK", "", size)
+        """设置字体，CJK 字体用 CJKb 模拟粗体"""
+        if "B" in style.upper():
+            pdf.set_font("CJKb", "", size + 1)
         else:
-            pdf.set_font("Helvetica", style, size)
+            pdf.set_font("CJK", "", size)
 
     for line in md_content.split("\n"):
         stripped = line.strip()
         if stripped.startswith("# "):
             set_font("B", 18)
-            pdf.cell(0, 12, stripped[2:], ln=True)
+            pdf.cell(0, 12, stripped[2:], new_x="LMARGIN", new_y="NEXT")
         elif stripped.startswith("## "):
             set_font("B", 14)
-            pdf.cell(0, 10, stripped[3:], ln=True)
+            pdf.cell(0, 10, stripped[3:], new_x="LMARGIN", new_y="NEXT")
         elif stripped.startswith("|") and stripped.endswith("|"):
             if "---" in stripped:
                 continue
@@ -288,17 +376,17 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql",
         elif stripped.startswith("> "):
             set_font("", 9)
             pdf.set_text_color(100, 100, 100)
-            pdf.cell(0, 7, stripped[2:], ln=True)
+            pdf.cell(0, 7, stripped[2:], new_x="LMARGIN", new_y="NEXT")
             pdf.set_text_color(0, 0, 0)
         elif stripped.startswith("- "):
             set_font("", 9)
-            pdf.cell(0, 6, f"  • {stripped[2:]}", ln=True)
+            pdf.cell(0, 6, f"  {stripped[2:]}", new_x="LMARGIN", new_y="NEXT")
         elif stripped.startswith("**") and stripped.endswith("**"):
             set_font("B", 10)
-            pdf.cell(0, 8, stripped.strip("*"), ln=True)
+            pdf.cell(0, 8, stripped.strip("*"), new_x="LMARGIN", new_y="NEXT")
         elif stripped:
             set_font("", 9)
-            pdf.cell(0, 6, stripped, ln=True)
+            pdf.cell(0, 6, stripped, new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(filepath)
 
