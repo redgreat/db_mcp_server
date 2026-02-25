@@ -360,7 +360,57 @@ async def execute_mcp_tool(
                 ]
             }
 
-    # 2. 其他工具都需要 connection_id
+    # 2. 特殊处理 compare_schemas（需要两个 connection_id）
+    if tool_name == "compare_schemas":
+        src_conn_id = arguments.get("source_connection_id")
+        tgt_conn_id = arguments.get("target_connection_id")
+        if not src_conn_id or not tgt_conn_id:
+            raise Exception("缺少必需参数: source_connection_id, target_connection_id")
+
+        def _resolve_connection(session, meta, aid, cid):
+            keys = Table("access_keys", meta, autoload_with=admin_engine)
+            key_row = session.execute(select(keys).where(keys.c.ak == aid)).mappings().first()
+            if not key_row:
+                raise Exception("访问密钥不存在")
+            perms = Table("permissions", meta, autoload_with=admin_engine)
+            perm = session.execute(
+                select(perms).where(perms.c.key_id == key_row["id"], perms.c.connection_id == cid)
+            ).mappings().first()
+            if not perm:
+                raise Exception(f"该密钥无权访问连接 {cid}")
+            conns = Table("db_connections", meta, autoload_with=admin_engine)
+            crow = session.execute(select(conns).where(conns.c.id == cid)).mappings().first()
+            if not crow:
+                raise Exception(f"连接 {cid} 不存在")
+            pw = decrypt_text(crow["password_enc"], cfg.security.master_key)
+            eg = qp.get_engine(crow["host"], int(crow["port"]), crow["username"], pw, crow["database"], crow["db_type"])
+            return eg, crow["database"], crow["db_type"]
+
+        with Session(admin_engine) as session:
+            meta = MetaData()
+            eng_src, db_src, dbtype_src = _resolve_connection(session, meta, access_key, src_conn_id)
+            eng_tgt, db_tgt, dbtype_tgt = _resolve_connection(session, meta, access_key, tgt_conn_id)
+
+        src_db = arguments.get("source_database") or db_src
+        tgt_db = arguments.get("target_database") or db_tgt
+        gen_ddl = arguments.get("generate_ddl", True)
+
+        from ..tools.db_compare_tool import compare_schemas as do_compare, generate_sync_ddl
+        comparison = do_compare(eng_src, src_db, dbtype_src, eng_tgt, tgt_db, dbtype_tgt)
+        result = {"comparison": comparison}
+        if gen_ddl:
+            result["sync_ddl"] = generate_sync_ddl(comparison, dbtype_tgt)
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log(
+            operation="mcp_compare_schemas", status="success",
+            access_key=access_key, client_ip=client_ip, duration_ms=duration_ms
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]
+        }
+
+    # 3. 其他工具都需要 connection_id
     if not connection_id:
         raise Exception("缺少必需参数: connection_id")
     
@@ -499,7 +549,114 @@ async def execute_mcp_tool(
                     result = {"rows": masked_rows, "count": len(masked_rows)}
                 except:
                     result = {"success": True, "message": "SQL 执行成功"}
-        
+
+        elif tool_name == "export_db_doc":
+            from ..tools.db_doc_tool import generate_db_doc_markdown, export_db_doc_pdf
+            database = arguments.get("database") or conn_row["database"]
+            fmt = arguments.get("format", "markdown")
+            if fmt == "pdf":
+                result = export_db_doc_pdf(engine, database, conn_row["db_type"])
+            else:
+                md = generate_db_doc_markdown(engine, database, conn_row["db_type"])
+                result = {"format": "markdown", "content": md}
+
+        elif tool_name == "generate_er_diagram":
+            from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
+            database = arguments.get("database") or conn_row["database"]
+            include_columns = arguments.get("include_columns", True)
+            include_implicit = arguments.get("include_implicit", True)
+            output_type = arguments.get("output_type", "both")
+            result = {}
+            if output_type in ("mermaid", "both"):
+                result["mermaid_result"] = generate_er_mermaid(
+                    engine, database, conn_row["db_type"], include_columns, include_implicit
+                )
+            if output_type in ("text", "both"):
+                result["text_description"] = generate_er_text_description(
+                    engine, database, conn_row["db_type"], include_implicit
+                )
+
+        elif tool_name == "generate_data_flow":
+            from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description
+            database = arguments.get("database") or conn_row["database"]
+            output_type = arguments.get("output_type", "both")
+            result = {}
+            if output_type in ("mermaid", "both"):
+                result["mermaid_result"] = generate_dataflow_mermaid(
+                    engine, database, conn_row["db_type"]
+                )
+            if output_type in ("text", "both"):
+                result["text_description"] = generate_dataflow_description(
+                    engine, database, conn_row["db_type"]
+                )
+
+        elif tool_name == "suggest_columns":
+            from ..tools.db_suggest_tool import get_table_full_info, analyze_impact
+            table_name = arguments.get("table")
+            database = arguments.get("database") or conn_row["database"]
+            if not table_name:
+                raise Exception("缺少参数: table")
+            get_info_only = arguments.get("get_table_info", False)
+            if get_info_only:
+                result = get_table_full_info(engine, database, table_name, conn_row["db_type"])
+            else:
+                columns_to_add = arguments.get("columns", [])
+                if not columns_to_add:
+                    raise Exception("缺少参数: columns（要添加的字段列表）")
+                result = analyze_impact(engine, database, table_name, columns_to_add, conn_row["db_type"])
+
+        elif tool_name == "analyze_performance":
+            from ..tools.db_performance_tool import (
+                get_connection_stats, get_slow_queries, get_lock_info,
+                get_table_stats, get_index_usage, generate_performance_report
+            )
+            database = arguments.get("database") or conn_row["database"]
+            analysis_type = arguments.get("analysis_type", "full")
+            if analysis_type == "full":
+                result = generate_performance_report(engine, database, conn_row["db_type"])
+            elif analysis_type == "connections":
+                result = {"connection_stats": get_connection_stats(engine, conn_row["db_type"])}
+            elif analysis_type == "slow_queries":
+                result = {"slow_queries": get_slow_queries(engine, conn_row["db_type"])}
+            elif analysis_type == "locks":
+                result = {"lock_info": get_lock_info(engine, conn_row["db_type"])}
+            elif analysis_type == "table_stats":
+                result = {"table_stats": get_table_stats(engine, database, conn_row["db_type"])}
+            elif analysis_type == "index_usage":
+                result = {"index_usage": get_index_usage(engine, database, conn_row["db_type"])}
+            else:
+                result = generate_performance_report(engine, database, conn_row["db_type"])
+
+        elif tool_name == "generate_mock_data":
+            from ..tools.db_mock_tool import generate_mock_data
+            table_name = arguments.get("table")
+            database = arguments.get("database") or conn_row["database"]
+            count = int(arguments.get("count", 10))
+            if not table_name:
+                raise Exception("缺少参数: table")
+            result = generate_mock_data(engine, database, table_name, conn_row["db_type"], count)
+
+        elif tool_name == "analyze_sql":
+            from ..tools.db_analyze_sql_tool import analyze_sql as do_analyze_sql
+            sql_text = arguments.get("sql")
+            database = arguments.get("database") or conn_row["database"]
+            if not sql_text:
+                raise Exception("缺少参数: sql")
+            result = do_analyze_sql(engine, database, sql_text, conn_row["db_type"])
+
+        elif tool_name == "backup_table":
+            from ..tools.db_backup_tool import backup_table as do_backup
+            table_name = arguments.get("table")
+            database = arguments.get("database") or conn_row["database"]
+            suffix = arguments.get("suffix")
+            if not table_name:
+                raise Exception("缺少参数: table")
+            result = do_backup(engine, database, table_name, conn_row["db_type"], suffix)
+
+        elif tool_name == "analyze_db_config":
+            from ..tools.db_config_tool import analyze_db_config
+            result = analyze_db_config(engine, conn_row["db_type"])
+
         else:
             raise Exception(f"未知工具: {tool_name}")
         

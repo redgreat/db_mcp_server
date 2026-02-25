@@ -90,7 +90,8 @@ def build_mcp_router(
             args = req.arguments
             connection_id = args.get("connection_id")
             
-            if connection_id is None:
+            # compare_schemas 使用 source_connection_id / target_connection_id
+            if connection_id is None and req.tool != "compare_schemas":
                 raise HTTPException(
                     status_code=400,
                     detail="缺少必需参数: connection_id"
@@ -208,7 +209,29 @@ def _execute_tool(
                 ]
             }
 
-    # 2. 其他工具都需要 connection_id
+    # 2. 特殊处理 compare_schemas（双连接）
+    if tool_name == "compare_schemas":
+        src_conn_id = args.get("source_connection_id")
+        tgt_conn_id = args.get("target_connection_id")
+        if not src_conn_id or not tgt_conn_id:
+            raise Exception("缺少必需参数: source_connection_id, target_connection_id")
+        perm_checker.check_permission(access_key, src_conn_id)
+        perm_checker.check_permission(access_key, tgt_conn_id)
+        eng_src, db_src, dbtype_src = _get_engine(cfg, qp, src_conn_id)
+        eng_tgt, db_tgt, dbtype_tgt = _get_engine(cfg, qp, tgt_conn_id)
+        src_db = args.get("source_database") or db_src
+        tgt_db = args.get("target_database") or db_tgt
+        gen_ddl = args.get("generate_ddl", True)
+        from ..tools.db_compare_tool import compare_schemas as do_compare, generate_sync_ddl
+        comparison = do_compare(eng_src, src_db, dbtype_src, eng_tgt, tgt_db, dbtype_tgt)
+        result = {"comparison": comparison}
+        if gen_ddl:
+            result["sync_ddl"] = generate_sync_ddl(comparison, dbtype_tgt)
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]
+        }
+
+    # 3. 其他工具都需要 connection_id
     connection_id = args.get("connection_id")
     try:
         if connection_id is None:
@@ -284,6 +307,125 @@ def _execute_tool(
                     result = {"rows": masked_rows, "count": len(masked_rows)}
                 except:
                     result = {"success": True, "message": "SQL执行成功"}
+
+        elif tool_name == "export_db_doc":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            fmt = args.get("format", "markdown")
+            if fmt == "pdf":
+                from ..tools.db_doc_tool import export_db_doc_pdf
+                result = export_db_doc_pdf(eng, database, db_type)
+            else:
+                from ..tools.db_doc_tool import generate_db_doc_markdown
+                md = generate_db_doc_markdown(eng, database, db_type)
+                result = {"format": "markdown", "content": md}
+
+        elif tool_name == "generate_er_diagram":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            include_columns = args.get("include_columns", True)
+            include_implicit = args.get("include_implicit", True)
+            output_type = args.get("output_type", "both")
+            from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
+            result = {}
+            if output_type in ("mermaid", "both"):
+                result["mermaid_result"] = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
+            if output_type in ("text", "both"):
+                result["text_description"] = generate_er_text_description(eng, database, db_type, include_implicit)
+
+        elif tool_name == "generate_data_flow":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            output_type = args.get("output_type", "both")
+            from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description
+            result = {}
+            if output_type in ("mermaid", "both"):
+                result["mermaid_result"] = generate_dataflow_mermaid(eng, database, db_type)
+            if output_type in ("text", "both"):
+                result["text_description"] = generate_dataflow_description(eng, database, db_type)
+
+        elif tool_name == "suggest_columns":
+            perm_checker.check_permission(access_key, connection_id)
+            table_name = args.get("table")
+            if not table_name:
+                raise Exception("缺少参数: table")
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            get_info_only = args.get("get_table_info", False)
+            from ..tools.db_suggest_tool import get_table_full_info, analyze_impact
+            if get_info_only:
+                result = get_table_full_info(eng, database, table_name, db_type)
+            else:
+                columns_to_add = args.get("columns", [])
+                if not columns_to_add:
+                    raise Exception("缺少参数: columns（要添加的字段列表）")
+                result = analyze_impact(eng, database, table_name, columns_to_add, db_type)
+
+        elif tool_name == "analyze_performance":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            analysis_type = args.get("analysis_type", "full")
+            from ..tools.db_performance_tool import (
+                get_connection_stats, get_slow_queries, get_lock_info,
+                get_table_stats, get_index_usage, generate_performance_report
+            )
+            if analysis_type == "full":
+                result = generate_performance_report(eng, database, db_type)
+            elif analysis_type == "connections":
+                result = {"connection_stats": get_connection_stats(eng, db_type)}
+            elif analysis_type == "slow_queries":
+                result = {"slow_queries": get_slow_queries(eng, db_type)}
+            elif analysis_type == "locks":
+                result = {"lock_info": get_lock_info(eng, db_type)}
+            elif analysis_type == "table_stats":
+                result = {"table_stats": get_table_stats(eng, database, db_type)}
+            elif analysis_type == "index_usage":
+                result = {"index_usage": get_index_usage(eng, database, db_type)}
+            else:
+                result = generate_performance_report(eng, database, db_type)
+
+        elif tool_name == "generate_mock_data":
+            perm_checker.check_permission(access_key, connection_id)
+            table_name = args.get("table")
+            if not table_name:
+                raise Exception("缺少参数: table")
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            count = int(args.get("count", 10))
+            from ..tools.db_mock_tool import generate_mock_data
+            result = generate_mock_data(eng, database, table_name, db_type, count)
+
+        elif tool_name == "analyze_sql":
+            perm_checker.check_permission(access_key, connection_id)
+            sql_text = args.get("sql")
+            if not sql_text:
+                raise Exception("缺少参数: sql")
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            from ..tools.db_analyze_sql_tool import analyze_sql as do_analyze_sql
+            result = do_analyze_sql(eng, database, sql_text, db_type)
+
+        elif tool_name == "backup_table":
+            table_name = args.get("table")
+            if not table_name:
+                raise Exception("缺少参数: table")
+            perm_checker.check_permission(access_key, connection_id, require_ddl=True)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            suffix = args.get("suffix")
+            from ..tools.db_backup_tool import backup_table as do_backup
+            result = do_backup(eng, database, table_name, db_type, suffix)
+
+        elif tool_name == "analyze_db_config":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            from ..tools.db_config_tool import analyze_db_config
+            result = analyze_db_config(eng, db_type)
+
         else:
             raise Exception(f"未知工具: {tool_name}")
 

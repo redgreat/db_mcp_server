@@ -10,4 +10,5 @@ sqlparse
 pyyaml
 pyjwt
 bcrypt
+fpdf2
 

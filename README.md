@@ -13,6 +13,94 @@
 - 🌐 Web 管理：图形化管理连接、密钥、权限、白名单
 - 🐳 Docker 部署：supervisord 管理，非 root 运行
 
+## 架构图
+
+```mermaid
+graph TB
+    subgraph Clients["客户端"]
+        AI["AI 客户端 / IDE<br/>(TRAE, Cursor 等)"]
+        HTTP["HTTP 客户端"]
+        WEB["Web 管理界面"]
+    end
+
+    subgraph Server["DB MCP Server — FastAPI"]
+        direction TB
+
+        subgraph Entry["入口层"]
+            SSE["/mcp/sse — SSE 端点"]
+            MSG["/mcp/message — MCP 消息"]
+            API["/query — HTTP 查询"]
+            ADMIN_API["/admin/* — 管理接口"]
+        end
+
+        subgraph MCP_Layer["MCP 协议层 · src/mcp/"]
+            TOOLS_DEF["tools.py 工具定义"]
+            STD_PROTO["standard_protocol.py SSE 协议"]
+            MCP_SRV["server.py HTTP 协议"]
+            PERM_CHK["permissions.py 权限检查"]
+        end
+
+        subgraph Security_Layer["安全层 · src/security/"]
+            INTERCEPT["SQL 风险拦截"]
+            WHITELIST["IP 白名单"]
+            MASKER["数据脱敏"]
+            SECRET["密码加解密"]
+        end
+
+        subgraph Tools_Layer["工具层 · src/tools/"]
+            META_TOOL["db_metadata_tool.py 元数据"]
+            DB_TOOL["db_tool.py 查询"]
+            DOC_TOOL["db_doc_tool.py 文档导出"]
+            ER_TOOL["db_er_tool.py ER 图"]
+            FLOW_TOOL["db_dataflow_tool.py 数据流"]
+            SUGGEST_TOOL["db_suggest_tool.py 字段建议"]
+            PERF_TOOL["db_performance_tool.py 性能分析"]
+        end
+
+        subgraph Core["核心层"]
+            QP["QueryProxy 数据库操作"]
+            CFG["Config 配置加载"]
+            AUDIT["AuditLogger 审计日志"]
+        end
+
+        subgraph Admin_Mod["管理模块 · src/admin/"]
+            MODELS["models.py 数据模型"]
+            AUTH["auth.py JWT 认证"]
+            WEB_ADMIN["web.py 管理路由"]
+        end
+    end
+
+    subgraph Target_DB["目标数据库"]
+        MYSQL[("MySQL")]
+        PG_TARGET[("PostgreSQL")]
+    end
+
+    ADMIN_DB[("PostgreSQL<br/>管理库")]
+
+    AI -->|"SSE + JSON-RPC"| SSE
+    AI -->|"POST"| MSG
+    HTTP -->|"REST"| API
+    WEB -->|"REST"| ADMIN_API
+
+    SSE --> STD_PROTO
+    MSG --> STD_PROTO
+    API --> Security_Layer
+    ADMIN_API --> WEB_ADMIN
+
+    STD_PROTO --> PERM_CHK
+    STD_PROTO --> Security_Layer
+    MCP_SRV --> PERM_CHK
+    MCP_SRV --> Security_Layer
+
+    Security_Layer --> Tools_Layer
+    Tools_Layer --> QP
+    QP --> MYSQL
+    QP --> PG_TARGET
+    WEB_ADMIN --> MODELS
+    MODELS --> ADMIN_DB
+    AUDIT --> ADMIN_DB
+```
+
 ## 快速开始
 
 ### 前置要求
