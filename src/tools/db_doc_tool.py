@@ -310,20 +310,18 @@ def _find_cjk_font() -> Optional[str]:
     return None
 
 
-def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql",
-                      output_dir: str = "data") -> Dict[str, Any]:
-    """生成 PDF 格式的数据库说明文档"""
+def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql") -> Dict[str, Any]:
+    """生成 PDF 格式的数据库说明文档，返回 base64 编码的 PDF 内容"""
     from fpdf import FPDF
+    import base64
     import logging
 
     logger = logging.getLogger(__name__)
 
     md_content = generate_db_doc_markdown(eng, database, db_type)
 
-    os.makedirs(output_dir, exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_doc_{database}_{timestamp}.pdf"
-    filepath = os.path.join(output_dir, filename)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -388,12 +386,13 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql",
             set_font("", 9)
             pdf.cell(0, 6, stripped, new_x="LMARGIN", new_y="NEXT")
 
-    pdf.output(filepath)
+    pdf_bytes = pdf.output()
+    pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     return {
-        "filepath": filepath,
         "filename": filename,
-        "size_bytes": os.path.getsize(filepath),
+        "size_bytes": len(pdf_bytes),
         "table_count": len(get_all_tables_with_comments(eng, database, db_type)),
+        "pdf_base64": pdf_base64,
         "markdown_content": md_content
     }

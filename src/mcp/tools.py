@@ -220,6 +220,11 @@ MCP_TOOLS = [
                     "type": "string",
                     "enum": ["mermaid", "text", "both"],
                     "description": "输出类型：mermaid(图表代码)、text(文字描述)、both(两者都输出)，默认 both"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "pdf"],
+                    "description": "输出格式，默认 markdown。选择 pdf 时会生成包含图表源码的 PDF 文件"
                 }
             },
             "required": ["connection_id"]
@@ -244,6 +249,11 @@ MCP_TOOLS = [
                     "type": "string",
                     "enum": ["mermaid", "text", "both"],
                     "description": "输出类型，默认 both"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "pdf"],
+                    "description": "输出格式，默认 markdown。选择 pdf 时会生成包含图表源码的 PDF 文件"
                 }
             },
             "required": ["connection_id"]

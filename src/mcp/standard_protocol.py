@@ -555,17 +555,79 @@ async def execute_mcp_tool(
             database = arguments.get("database") or conn_row["database"]
             fmt = arguments.get("format", "markdown")
             if fmt == "pdf":
-                result = export_db_doc_pdf(engine, database, conn_row["db_type"])
+                pdf_result = export_db_doc_pdf(engine, database, conn_row["db_type"])
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation=f"mcp_{tool_name}",
+                    status="success",
+                    access_key=access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    duration_ms=duration_ms
+                )
+                return {
+                    "content": [
+                        {
+                            "type": "resource",
+                            "resource": {
+                                "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
+                                "mimeType": "application/pdf",
+                                "blob": pdf_result["pdf_base64"]
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": json.dumps({
+                                "filename": pdf_result["filename"],
+                                "size_bytes": pdf_result["size_bytes"],
+                                "table_count": pdf_result["table_count"],
+                                "message": f"PDF 文档已生成：{pdf_result['filename']}（{pdf_result['size_bytes']} 字节），包含 {pdf_result['table_count']} 张表"
+                            }, ensure_ascii=False)
+                        }
+                    ]
+                }
             else:
                 md = generate_db_doc_markdown(engine, database, conn_row["db_type"])
                 result = {"format": "markdown", "content": md}
 
         elif tool_name == "generate_er_diagram":
-            from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
+            from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description, export_er_report_pdf
             database = arguments.get("database") or conn_row["database"]
             include_columns = arguments.get("include_columns", True)
             include_implicit = arguments.get("include_implicit", True)
             output_type = arguments.get("output_type", "both")
+            fmt = arguments.get("format", "markdown")
+            
+            if fmt == "pdf":
+                pdf_result = export_er_report_pdf(
+                    engine, database, conn_row["db_type"], include_columns, include_implicit
+                )
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation=f"mcp_{tool_name}", status="success", access_key=access_key,
+                    client_ip=client_ip, connection_id=connection_id, duration_ms=duration_ms
+                )
+                return {
+                    "content": [
+                        {
+                            "type": "resource",
+                            "resource": {
+                                "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
+                                "mimeType": "application/pdf",
+                                "blob": pdf_result["pdf_base64"]
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": json.dumps({
+                                "filename": pdf_result["filename"],
+                                "size_bytes": pdf_result["size_bytes"],
+                                "message": f"ER 图报告已生成：{pdf_result['filename']}"
+                            }, ensure_ascii=False)
+                        }
+                    ]
+                }
+            
             result = {}
             if output_type in ("mermaid", "both"):
                 result["mermaid_result"] = generate_er_mermaid(
@@ -577,9 +639,39 @@ async def execute_mcp_tool(
                 )
 
         elif tool_name == "generate_data_flow":
-            from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description
+            from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description, export_dataflow_report_pdf
             database = arguments.get("database") or conn_row["database"]
             output_type = arguments.get("output_type", "both")
+            fmt = arguments.get("format", "markdown")
+            
+            if fmt == "pdf":
+                pdf_result = export_dataflow_report_pdf(engine, database, conn_row["db_type"])
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation=f"mcp_{tool_name}", status="success", access_key=access_key,
+                    client_ip=client_ip, connection_id=connection_id, duration_ms=duration_ms
+                )
+                return {
+                    "content": [
+                        {
+                            "type": "resource",
+                            "resource": {
+                                "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
+                                "mimeType": "application/pdf",
+                                "blob": pdf_result["pdf_base64"]
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": json.dumps({
+                                "filename": pdf_result["filename"],
+                                "size_bytes": pdf_result["size_bytes"],
+                                "message": f"数据流报告已生成：{pdf_result['filename']}"
+                            }, ensure_ascii=False)
+                        }
+                    ]
+                }
+
             result = {}
             if output_type in ("mermaid", "both"):
                 result["mermaid_result"] = generate_dataflow_mermaid(
