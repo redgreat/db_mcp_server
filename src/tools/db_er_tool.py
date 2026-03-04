@@ -47,13 +47,17 @@ def get_foreign_keys(eng: Engine, database: str, db_type: str = "mysql") -> List
 
 
 def get_table_columns_for_er(eng: Engine, database: str, db_type: str = "mysql") -> Dict[str, List[Dict[str, str]]]:
-    """获取所有表的字段精简信息（用于 ER 图）"""
     if db_type.lower() == "postgresql":
         sql = """
             SELECT
                 c.table_name,
                 c.column_name,
                 c.data_type,
+                c.character_maximum_length,
+                c.numeric_precision,
+                c.numeric_scale,
+                c.is_nullable,
+                c.column_default,
                 CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE '' END AS key_type,
                 COALESCE(pgd.description, '') AS column_comment
             FROM information_schema.columns c
@@ -80,6 +84,11 @@ def get_table_columns_for_er(eng: Engine, database: str, db_type: str = "mysql")
                 c.TABLE_NAME AS table_name,
                 c.COLUMN_NAME AS column_name,
                 c.DATA_TYPE AS data_type,
+                c.CHARACTER_MAXIMUM_LENGTH AS character_maximum_length,
+                c.NUMERIC_PRECISION AS numeric_precision,
+                c.NUMERIC_SCALE AS numeric_scale,
+                c.IS_NULLABLE AS is_nullable,
+                c.COLUMN_DEFAULT AS column_default,
                 CASE WHEN c.COLUMN_KEY = 'PRI' THEN 'PK' ELSE '' END AS key_type,
                 COALESCE(c.COLUMN_COMMENT, '') AS column_comment
             FROM information_schema.COLUMNS c
@@ -94,11 +103,22 @@ def get_table_columns_for_er(eng: Engine, database: str, db_type: str = "mysql")
         tname = r["table_name"]
         if tname not in result:
             result[tname] = []
+        # 计算长度
+        length = ""
+        if r.get("character_maximum_length"):
+            length = str(r["character_maximum_length"])
+        elif r.get("numeric_precision"):
+            length = str(r["numeric_precision"])
+            if r.get("numeric_scale"):
+                length += f",{r['numeric_scale']}"
         result[tname].append({
             "column_name": r["column_name"],
             "data_type": r["data_type"],
             "key_type": r["key_type"],
-            "comment": r["column_comment"]
+            "comment": r["column_comment"],
+            "length": length,
+            "nullable": r.get("is_nullable"),
+            "default": r.get("column_default")
         })
     return result
 
@@ -154,13 +174,25 @@ def generate_er_mermaid(eng: Engine, database: str, db_type: str = "mysql",
             for col in cols:
                 dtype = re.sub(r'[^a-zA-Z0-9]', '_', col["data_type"])
                 pk_mark = "PK" if col["key_type"] == "PK" else ""
-                comment = col["comment"][:30].replace('"', "'") if col["comment"] else ""
-                if pk_mark and comment:
-                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{comment}"')
+                meta = []
+                if col.get("length"):
+                    meta.append(f"len:{col['length']}")
+                if col.get("nullable"):
+                    meta.append("NULL" if str(col["nullable"]).upper() in ("YES", "TRUE") else "NN")
+                if col.get("default"):
+                    dval = str(col["default"]).replace('"', "'")
+                    meta.append(f"def:{dval}")
+                comment_parts = []
+                if col.get("comment"):
+                    comment_parts.append(col["comment"][:50].replace('"', "'"))
+                if meta:
+                    comment_parts.append(" ".join(meta))
+                if pk_mark and comment_parts:
+                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{ " | ".join(comment_parts) }"')
                 elif pk_mark:
                     lines.append(f'        {dtype} {col["column_name"]} {pk_mark}')
-                elif comment:
-                    lines.append(f'        {dtype} {col["column_name"]} "{comment}"')
+                elif comment_parts:
+                    lines.append(f'        {dtype} {col["column_name"]} "{ " | ".join(comment_parts) }"')
                 else:
                     lines.append(f'        {dtype} {col["column_name"]}')
             lines.append("    }")
@@ -224,6 +256,156 @@ def generate_er_text_description(eng: Engine, database: str, db_type: str = "mys
 
     return "\n".join(lines)
 
+def generate_er_mermaid_parts(
+    eng: Engine,
+    database: str,
+    db_type: str = "mysql",
+    include_columns: bool = True,
+    include_implicit: bool = True,
+    max_tables_per_part: int = 150,
+    max_chars: int = 500000
+) -> List[str]:
+    """生成按片段划分的 Mermaid erDiagram 代码
+    
+    Args:
+        eng: 数据库引擎
+        database: 库名
+        db_type: 数据库类型
+        include_columns: 是否包含字段
+        include_implicit: 是否包含推断关系
+        max_tables_per_part: 单片段最大表数量
+        max_chars: 单片段最大字符数
+        
+    Returns:
+        Mermaid 文本片段列表
+    """
+    table_columns = get_table_columns_for_er(eng, database, db_type)
+    fks = get_foreign_keys(eng, database, db_type)
+    implicit_rels = analyze_implicit_relationships(table_columns, fks) if include_implicit else []
+    
+    def safe_name(name: str) -> str:
+        import re as _re
+        return _re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    
+    # 预先构建每个表的块内容
+    table_blocks: List[str] = []
+    for tname, cols in table_columns.items():
+        sname = safe_name(tname)
+        lines = [f"    {sname} {{"]
+        if include_columns:
+            for col in cols:
+                dtype = re.sub(r'[^a-zA-Z0-9]', '_', col["data_type"])
+                pk_mark = "PK" if col["key_type"] == "PK" else ""
+                meta = []
+                if col.get("length"):
+                    meta.append(f"len:{col['length']}")
+                if col.get("nullable"):
+                    meta.append("NULL" if str(col["nullable"]).upper() in ("YES", "TRUE") else "NN")
+                if col.get("default"):
+                    dval = str(col["default"]).replace('"', "'")
+                    meta.append(f"def:{dval}")
+                comment_parts = []
+                if col.get("comment"):
+                    comment_parts.append(col["comment"][:50].replace('"', "'"))
+                if meta:
+                    comment_parts.append(" ".join(meta))
+                if pk_mark and comment_parts:
+                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{ " | ".join(comment_parts) }"')
+                elif pk_mark:
+                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark}')
+                elif comment_parts:
+                    lines.append(f'        {dtype} {col["column_name"]} "{ " | ".join(comment_parts) }"')
+                else:
+                    lines.append(f'        {dtype} {col["column_name"]}')
+        lines.append("    }")
+        table_blocks.append("\n".join(lines))
+    
+    # 外键关系块
+    fk_blocks: List[str] = []
+    for fk in fks:
+        from_t = safe_name(fk["from_table"])
+        to_t = safe_name(fk["to_table"])
+        label = fk.get("constraint_name", f'{fk["from_column"]}')
+        fk_blocks.append(f'    {to_t} ||--o{{ {from_t} : "{label}"')
+    
+    # 推断关系块
+    implicit_blocks: List[str] = []
+    for rel in implicit_rels:
+        from_t = safe_name(rel["from_table"])
+        to_t = safe_name(rel["to_table"])
+        implicit_blocks.append(f'    {to_t} ||--o{{ {from_t} : "{rel["from_column"]}(推断)"')
+    
+    # 组装分片
+    parts: List[str] = []
+    current_lines: List[str] = ["erDiagram"]
+    current_tables = 0
+    
+    for block in table_blocks:
+        next_len = sum(len(l) for l in current_lines) + len(block)
+        if (max_tables_per_part and current_tables >= max_tables_per_part) or next_len > max_chars:
+            parts.append("\n".join(current_lines))
+            current_lines = ["erDiagram"]
+            current_tables = 0
+        current_lines.append(block)
+        current_tables += 1
+    
+    # 尝试添加外键与隐含关系
+    rel_blocks = fk_blocks + implicit_blocks
+    for block in rel_blocks:
+        next_len = sum(len(l) for l in current_lines) + len(block)
+        if next_len > max_chars:
+            parts.append("\n".join(current_lines))
+            current_lines = ["erDiagram"]
+        current_lines.append(block)
+    
+    if current_lines:
+        parts.append("\n".join(current_lines))
+    
+    return parts
+
+def save_er_mermaid_split(
+    eng: Engine,
+    database: str,
+    db_type: str = "mysql",
+    save_dir: str = ".",
+    filename_prefix: Optional[str] = None,
+    include_columns: bool = True,
+    include_implicit: bool = True,
+    max_tables_per_part: int = 150,
+    max_chars: int = 500000
+) -> List[str]:
+    """生成并保存分片 Mermaid 文档
+    
+    Args:
+        eng: 数据库引擎
+        database: 库名
+        db_type: 数据库类型
+        save_dir: 保存目录
+        filename_prefix: 文件名前缀
+        include_columns: 是否包含字段
+        include_implicit: 是否包含推断关系
+        max_tables_per_part: 单片段最大表数量
+        max_chars: 单片段最大字符数
+        
+    Returns:
+        保存的文件路径列表
+    """
+    import os
+    parts = generate_er_mermaid_parts(
+        eng, database, db_type, include_columns, include_implicit, max_tables_per_part, max_chars
+    )
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+    if not filename_prefix:
+        filename_prefix = f"db_er_{database}"
+    saved = []
+    for i, content in enumerate(parts, 1):
+        path = os.path.join(save_dir, f"{filename_prefix}_part_{i}.md")
+        md = f"```mermaid\n{content}\n```"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(md)
+        saved.append(path)
+    return saved
 
 def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
                          include_columns: bool = True,

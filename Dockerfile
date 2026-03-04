@@ -27,7 +27,6 @@ USER dbmcp
 # 环境变量
 ENV HOST=0.0.0.0
 ENV PORT=3000
-ENV ADMIN_DB_PATH=/data/admin/admin.db
 ENV LOG_DIR=/var/log/db_mcp_server
 
 EXPOSE 3000

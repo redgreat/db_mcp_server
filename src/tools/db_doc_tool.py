@@ -160,6 +160,46 @@ def get_table_indexes(eng: Engine, database: str, table: str, db_type: str = "my
 
     return [dict(r) for r in rows]
 
+def get_table_foreign_keys(eng: Engine, database: str, table: str, db_type: str = "mysql") -> List[Dict[str, Any]]:
+    if db_type.lower() == "postgresql":
+        sql = """
+            SELECT
+                tc.constraint_name AS constraint_name,
+                kcu.column_name AS column_name,
+                ccu.table_name AS referenced_table,
+                ccu.column_name AS referenced_column
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+              ON ccu.constraint_name = tc.constraint_name
+             AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_name = :tb
+              AND tc.table_schema = :schema
+            ORDER BY kcu.column_name
+        """
+        schema = "public" if database == "public" else database
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"tb": table, "schema": schema}).mappings().all()
+    else:
+        sql = """
+            SELECT
+                CONSTRAINT_NAME AS constraint_name,
+                COLUMN_NAME AS column_name,
+                REFERENCED_TABLE_NAME AS referenced_table,
+                REFERENCED_COLUMN_NAME AS referenced_column
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = :db
+              AND TABLE_NAME = :tb
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+            ORDER BY COLUMN_NAME
+        """
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"db": database, "tb": table}).mappings().all()
+    return [dict(r) for r in rows]
+
 
 def generate_db_doc_markdown(eng: Engine, database: str, db_type: str = "mysql") -> str:
     """生成 Markdown 格式的数据库说明文档"""
@@ -230,6 +270,16 @@ def generate_db_doc_markdown(eng: Engine, database: str, db_type: str = "mysql")
                     uq = "UNIQUE " if info["unique"] else ""
                     cols = ", ".join(info["columns"])
                     lines.append(f"- `{name}`: {uq}{info['type']} ({cols})")
+            lines.append("")
+        
+        fks = get_table_foreign_keys(eng, database, tname, db_type)
+        if fks:
+            lines.append(f"**外键:**\n")
+            for fk in fks:
+                lines.append(
+                    f"- `{fk['constraint_name']}`: {tname}.{fk['column_name']} → "
+                    f"{fk['referenced_table']}.{fk['referenced_column']}"
+                )
             lines.append("")
 
     return "\n".join(lines)
@@ -409,3 +459,166 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql", save_p
         "markdown_content": md_content,
         "saved_to": saved_to
     }
+
+def generate_db_doc_markdown_parts(
+    eng: Engine,
+    database: str,
+    db_type: str = "mysql",
+    max_chars: int = 500000,
+    max_tables_per_part: Optional[int] = None
+) -> List[str]:
+    """生成按片段划分的 Markdown 文档
+    
+    Args:
+        eng: 数据库引擎
+        database: 库名
+        db_type: 数据库类型
+        max_chars: 单片段最大字符数
+        max_tables_per_part: 单片段最大表数量
+        
+    Returns:
+        Markdown 文本片段列表
+    """
+    summary = get_db_summary(eng, database, db_type)
+    tables = get_all_tables_with_comments(eng, database, db_type)
+    
+    header_lines = []
+    header_lines.append(f"# 数据库说明文档 — {database}\n")
+    header_lines.append("## 数据库概要\n")
+    header_lines.append("| 属性 | 值 |")
+    header_lines.append("|------|------|")
+    for k, v in summary.items():
+        header_lines.append(f"| {k} | {v} |")
+    header_lines.append("")
+    
+    list_lines = []
+    list_lines.append("## 表汇总\n")
+    list_lines.append("| 序号 | 表名 | 备注 |")
+    list_lines.append("|------|------|------|")
+    for i, t in enumerate(tables, 1):
+        list_lines.append(f"| {i} | {t['table_name']} | {t['table_comment']} |")
+    list_lines.append("")
+    
+    def table_block(tname: str, tcomment: str) -> str:
+        lines = []
+        lines.append(f"## {tname}")
+        if tcomment:
+            lines.append(f"\n> {tcomment}\n")
+        else:
+            lines.append("")
+        cols = get_table_columns_detail(eng, database, tname, db_type)
+        lines.append("| 字段名 | 类型 | 长度/精度 | 可空 | 默认值 | 键 | 备注 |")
+        lines.append("|--------|------|-----------|------|--------|-----|------|")
+        for c in cols:
+            length = ""
+            if c.get("character_maximum_length"):
+                length = str(c["character_maximum_length"])
+            elif c.get("numeric_precision"):
+                length = str(c["numeric_precision"])
+                if c.get("numeric_scale"):
+                    length += f",{c['numeric_scale']}"
+            lines.append(
+                f"| {c['column_name']} | {c['data_type']} | {length} "
+                f"| {c['is_nullable']} | {c.get('column_default', '') or ''} "
+                f"| {c.get('column_key', '')} | {c.get('column_comment', '')} |"
+            )
+        lines.append("")
+        idxs = get_table_indexes(eng, database, tname, db_type)
+        if idxs:
+            lines.append("**索引:**\n")
+            if db_type.lower() == "postgresql":
+                for idx in idxs:
+                    lines.append(f"- `{idx['index_name']}`: {idx['index_definition']}")
+            else:
+                idx_map: Dict[str, Dict[str, Any]] = {}
+                for idx in idxs:
+                    name = idx["index_name"]
+                    if name not in idx_map:
+                        idx_map[name] = {
+                            "columns": [],
+                            "unique": not idx["non_unique"],
+                            "type": idx["index_type"]
+                        }
+                    idx_map[name]["columns"].append(idx["column_name"])
+                for name, info in idx_map.items():
+                    uq = "UNIQUE " if info["unique"] else ""
+                    cols_join = ", ".join(info["columns"])
+                    lines.append(f"- `{name}`: {uq}{info['type']} ({cols_join})")
+            lines.append("")
+        fks = get_table_foreign_keys(eng, database, tname, db_type)
+        if fks:
+            lines.append("**外键:**\n")
+            for fk in fks:
+                lines.append(
+                    f"- `{fk['constraint_name']}`: {tname}.{fk['column_name']} → "
+                    f"{fk['referenced_table']}.{fk['referenced_column']}"
+                )
+            lines.append("")
+        return "\n".join(lines)
+    
+    parts: List[str] = []
+    current_lines: List[str] = []
+    current_tables = 0
+    
+    # 首片段加入概要与表汇总
+    current_lines.extend(header_lines)
+    current_lines.extend(list_lines)
+    
+    for t in tables:
+        block = table_block(t["table_name"], t["table_comment"])
+        # 预检查是否需要切片
+        next_len = sum(len(l) for l in current_lines) + len(block)
+        hit_chars = next_len > max_chars
+        hit_tables = max_tables_per_part is not None and current_tables >= max_tables_per_part
+        if hit_chars or hit_tables:
+            parts.append("\n".join(current_lines))
+            current_lines = []
+            current_tables = 0
+            # 非首片段标题
+            current_lines.append(f"# 数据库说明文档 — {database}（分片）\n")
+        current_lines.append(block)
+        current_tables += 1
+    
+    if current_lines:
+        parts.append("\n".join(current_lines))
+    
+    return parts
+
+def save_db_doc_markdown_split(
+    eng: Engine,
+    database: str,
+    db_type: str = "mysql",
+    save_dir: str = ".",
+    filename_prefix: Optional[str] = None,
+    max_chars: int = 500000,
+    max_tables_per_part: Optional[int] = None
+) -> List[str]:
+    """生成并保存分片 Markdown 文档
+    
+    Args:
+        eng: 数据库引擎
+        database: 库名
+        db_type: 数据库类型
+        save_dir: 保存目录
+        filename_prefix: 文件名前缀
+        max_chars: 单片段最大字符数
+        max_tables_per_part: 单片段最大表数量
+        
+    Returns:
+        保存的文件路径列表
+    """
+    import os
+    parts = generate_db_doc_markdown_parts(
+        eng, database, db_type, max_chars=max_chars, max_tables_per_part=max_tables_per_part
+    )
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+    if not filename_prefix:
+        filename_prefix = f"db_doc_{database}"
+    saved = []
+    for i, content in enumerate(parts, 1):
+        path = os.path.join(save_dir, f"{filename_prefix}_part_{i}.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        saved.append(path)
+    return saved
