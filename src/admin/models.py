@@ -123,6 +123,19 @@ def ensure_schema(engine: Engine):
         Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="分配时间"),
     )
     
+    # 大模型配置表
+    llm_configs = Table(
+        "llm_configs", meta,
+        Column("id", Integer, primary_key=True, comment="配置ID"),
+        Column("provider", String(50), nullable=False, unique=True, comment="提供商: openai/claude/deepseek等"),
+        Column("base_url", String(255), nullable=True, comment="API Base URL"),
+        Column("api_key_enc", Text, nullable=True, comment="加密存储的API Key"),
+        Column("model_name", String(100), nullable=False, comment="模型名称(如gpt-4o, claude-3-5-sonnet-20241022, deepseek-coder)"),
+        Column("is_active", Boolean, default=False, comment="是否当前激活使用(原则上全局激活一个)"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
+        Column("updated_at", DateTime(timezone=True), onupdate=func.now(), comment="最后更新时间"),
+    )
+    
     # 创建所有表
     meta.create_all(engine)
 
@@ -187,3 +200,45 @@ def create_default_admin(engine: Engine, master_key: str = None, username: str =
             print(f"✅ 创建默认管理员: {username}")
         else:
             print(f"⚠️ 管理员已存在: {username}")
+
+
+def initialize_default_llm_configs(engine: Engine):
+    """初始化默认的大模型提供商配置"""
+    from sqlalchemy import Table, MetaData, select, insert
+    from sqlalchemy.orm import Session
+    
+    meta = MetaData()
+    llm_configs = Table("llm_configs", meta, autoload_with=engine)
+    
+    defaults = [
+        {
+            "provider": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "model_name": "gpt-4o",
+            "is_active": False
+        },
+        {
+            "provider": "claude",
+            "base_url": "https://api.anthropic.com",
+            "model_name": "claude-3-5-sonnet-20241022",
+            "is_active": False
+        },
+        {
+            "provider": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model_name": "deepseek-coder",
+            "is_active": False
+        }
+    ]
+    
+    with Session(engine) as session:
+        for default in defaults:
+            existing = session.execute(
+                select(llm_configs).where(llm_configs.c.provider == default["provider"])
+            ).first()
+            
+            if not existing:
+                session.execute(insert(llm_configs).values(**default))
+                print(f"✅ 创建默认 LLM 配置: {default['provider']}")
+        session.commit()
+

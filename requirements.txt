@@ -11,4 +11,5 @@ pyyaml
 pyjwt
 bcrypt
 fpdf2
-
+pymssql
+openai

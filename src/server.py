@@ -2,7 +2,7 @@ import os
 import time
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, RedirectResponse
 from typing import Dict, Any, Optional
 from .config import Config
 from .logging_utils import get_logger
@@ -26,6 +26,14 @@ def create_app() -> FastAPI:
     # 静态文件目录
     static_dir = Path(__file__).resolve().parent / "static"
     
+    # SPA 入口 index.html
+    spa_index = static_dir / "index.html"
+    
+    @app.get("/", include_in_schema=False)
+    async def root_redirect():
+        """根路径重定向到管理界面"""
+        return RedirectResponse(url="/connections")
+
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
         fav_path = static_dir / "favicon.ico"
@@ -37,9 +45,40 @@ def create_app() -> FastAPI:
     if static_dir.exists():
         from fastapi.staticfiles import StaticFiles
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        # 挂载 _app 目录（SvelteKit 生成的资源）
+        app.mount("/_app", StaticFiles(directory=str(static_dir / "_app")), name="sveltekit_app")
         logger.info(f"Mounted static directory: {static_dir}")
     else:
         logger.warning(f"Static directory not found: {static_dir}")
+        
+    # 挂载生成的临时文件下载目录
+    downloads_dir = Path(__file__).resolve().parent.parent / "data" / "downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/downloads", StaticFiles(directory=str(downloads_dir)), name="downloads")
+    logger.info(f"Mounted downloads directory: {downloads_dir}")
+    
+    import asyncio
+    @app.on_event("startup")
+    async def start_cleanup_task():
+        """启动后台定时清理任务"""
+        async def cleanup_loop():
+            while True:
+                try:
+                    now = time.time()
+                    # 遍历清理超过 7 天的文件 (7 * 24 * 3600 = 604800 秒)
+                    for f in downloads_dir.glob("*"):
+                        if f.is_file() and now - f.stat().st_mtime > 604800:
+                            f.unlink()
+                            logger.info(f"清理过期临时文件: {f.name}")
+                except Exception as e:
+                    logger.error(f"清理过期临时文件时发生错误: {e}")
+                
+                # 每 12 小时检查一次
+                await asyncio.sleep(43200)
+                
+        asyncio.create_task(cleanup_loop())
+        logger.info("已启动下载目录临时文件自动清理任务 (保留7天)")
     
     app.include_router(build_admin_router(cfg))
     qp = QueryProxy()
@@ -306,6 +345,18 @@ def create_app() -> FastAPI:
         """强制清理过期事务"""
         qp._cleanup_expired_transactions()
         return {"ok": True, "message": "清理完成"}
+
+    # SPA catch-all：所有未匹配的路径返回 index.html（支持前端路由）
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str, request: Request):
+        """SvelteKit SPA 路由兜底"""
+        # API 路径直接报 404，不走 SPA
+        if full_path.startswith("admin/") or full_path.startswith("mcp"):
+            raise HTTPException(status_code=404)
+        index_path = static_dir / "index.html"
+        if index_path.exists():
+            return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+        raise HTTPException(status_code=404, detail="Frontend not built")
 
     return app
 

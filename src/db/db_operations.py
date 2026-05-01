@@ -59,6 +59,9 @@ class QueryProxy:
         if eng is None:
             if db_type.lower() == "postgresql":
                 uri = f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{db}"
+            elif db_type.lower() in ("sqlserver", "mssql"):
+                # 注意：有些情况下需要额外参数 ?charset=utf8
+                uri = f"mssql+pymssql://{user}:{pwd}@{host}:{port}/{db}"
             else:  # 默认使用MySQL
                 uri = f"mysql+pymysql://{user}:{pwd}@{host}:{port}/{db}"
             eng = create_engine(uri, pool_pre_ping=True)

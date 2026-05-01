@@ -298,6 +298,12 @@ def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql
     
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_dataflow_{database}_{timestamp}.pdf"
+    
+    # 获取通用的下载目录
+    from pathlib import Path
+    downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    save_path = str(downloads_dir / filename)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -358,23 +364,17 @@ def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql
 
     pdf_bytes = pdf.output()
     
-    saved_to = None
-    if save_path:
-        # 确保目录存在
-        save_dir = os.path.dirname(os.path.abspath(save_path))
-        if save_dir and not os.path.exists(save_dir):
-            os.makedirs(save_dir, exist_ok=True)
-        with open(save_path, 'wb') as f:
-            f.write(pdf_bytes)
-        saved_to = os.path.abspath(save_path)
-        logger.info(f"数据流报告已保存到本地: {saved_to}")
+    with open(save_path, 'wb') as f:
+        f.write(pdf_bytes)
+    saved_to = os.path.abspath(save_path)
+    logger.info(f"数据流报告已保存到本地: {saved_to}")
 
-    pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
+    download_url = f"/downloads/{filename}"
 
     return {
-        "filename": filename,
-        "size_bytes": len(pdf_bytes),
-        "mermaid_code": mermaid_data["mermaid"],
-        "pdf_base64": pdf_base64,
-        "saved_to": saved_to
+        "success": True,
+        "message": f"数据流PDF报告生成成功。",
+        "file_path": saved_to,
+        "download_url": download_url,
+        "mermaid_preview": mermaid_data["mermaid"][:2000] + "\n... (为节省空间已截断)" if len(mermaid_data["mermaid"]) > 2000 else mermaid_data["mermaid"]
     }

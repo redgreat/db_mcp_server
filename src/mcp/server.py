@@ -355,14 +355,16 @@ def _execute_tool(
             eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
             database = args.get("database") or db_name
             get_info_only = args.get("get_table_info", False)
-            from ..tools.db_suggest_tool import get_table_full_info, analyze_impact
+            from ..tools.db_suggest_tool import get_table_full_info, analyze_impact, suggest_columns
             if get_info_only:
                 result = get_table_full_info(eng, database, table_name, db_type)
             else:
                 columns_to_add = args.get("columns", [])
-                if not columns_to_add:
-                    raise Exception("缺少参数: columns（要添加的字段列表）")
-                result = analyze_impact(eng, database, table_name, columns_to_add, db_type)
+                if columns_to_add:
+                    result = analyze_impact(eng, database, table_name, columns_to_add, db_type)
+                else:
+                    # 没有传 columns 就走智能推荐
+                    result = suggest_columns(eng, database, table_name, db_type)
 
         elif tool_name == "analyze_performance":
             perm_checker.check_permission(access_key, connection_id)

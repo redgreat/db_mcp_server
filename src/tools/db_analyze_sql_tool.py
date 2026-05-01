@@ -249,16 +249,48 @@ def analyze_sql(eng: Engine, database: str, sql: str, db_type: str = "mysql") ->
     )
     result["rewrite_suggestions"] = _generate_rewrite_suggestions(sql)
 
-    severity_order = {"high": 0, "medium": 1, "low": 2}
-    all_issues = result["plan_issues"] + result["index_suggestions"] + result["rewrite_suggestions"]
-    if not all_issues:
-        result["overall_assessment"] = "SQL 质量良好，未发现明显性能问题"
-    else:
-        high = sum(1 for i in all_issues if i.get("severity") == "high")
-        medium = sum(1 for i in all_issues if i.get("severity") == "medium")
-        result["overall_assessment"] = (
-            f"发现 {len(all_issues)} 个潜在问题"
-            f"（高风险 {high} 个，中风险 {medium} 个），请参考建议优化"
+    try:
+        from ..ai.llm_client import LLMClient
+        llm = LLMClient()
+    except Exception:
+        llm = None
+
+    if llm and llm.is_enabled():
+        system_prompt = (
+            "你是一个顶级的数据库性能优化专家。请根据用户提供的 SQL 语句、"
+            "涉及表的现有索引结构以及 EXPLAIN 执行计划，诊断潜在的性能瓶颈。\n"
+            "你需要提供：\n"
+            "1. 最专业的索引创建建议（请提供标准 SQL DDL 语句）。\n"
+            "2. SQL 语句的高效改写建议（并解释为什么）。\n"
+            "请直接输出 Markdown 格式的分析报告，无需多余闲聊。"
         )
+        
+        user_prompt = f"### SQL 语句\n```sql\n{sql}\n```\n\n### 涉及表的现有索引\n"
+        for tbl, idxs in existing_indexes.items():
+            user_prompt += f"**表 {tbl}**:\n```json\n{idxs}\n```\n"
+        
+        user_prompt += f"\n### EXPLAIN 执行计划\n```json\n{result['explain_plan']}\n```\n"
+        
+        try:
+            ai_result = llm.ask(system_prompt, user_prompt)
+            result["ai_assessment"] = ai_result["content"]
+            result["ai_usage"] = ai_result["usage"]
+            result["overall_assessment"] = "🌟 [AI 智能审查开启] 已由大模型深度分析，请参阅 ai_assessment。"
+        except Exception as e:
+            result["ai_assessment"] = f"AI 调用失败：{e}"
+            result["overall_assessment"] = "⚠️ AI 分析失败，已降级回基础规则分析。"
+    else:
+        # 如果没有配置 AI，使用原有的统计逻辑
+        severity_order = {"high": 0, "medium": 1, "low": 2}
+        all_issues = result["plan_issues"] + result["index_suggestions"] + result["rewrite_suggestions"]
+        if not all_issues:
+            result["overall_assessment"] = "SQL 质量良好，未发现明显性能问题"
+        else:
+            high = sum(1 for i in all_issues if i.get("severity") == "high")
+            medium = sum(1 for i in all_issues if i.get("severity") == "medium")
+            result["overall_assessment"] = (
+                f"发现 {len(all_issues)} 个潜在问题"
+                f"（高风险 {high} 个，中风险 {medium} 个），请参考建议优化"
+            )
 
     return result

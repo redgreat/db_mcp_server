@@ -15,6 +15,8 @@ def list_databases(eng: Engine, db_type: str = "mysql") -> List[str]:
     """
     if db_type.lower() == "postgresql":
         sql = "SELECT datname FROM pg_database WHERE datistemplate = false"
+    elif db_type.lower() in ("sqlserver", "mssql"):
+        sql = "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' AND name NOT IN ('master', 'tempdb', 'model', 'msdb')"
     else:
         sql = "SHOW DATABASES"
         
@@ -45,6 +47,10 @@ def list_tables(eng: Engine, database: str, db_type: str = "mysql") -> List[str]
         schema = "public" if database == "public" else database
         with eng.connect() as conn:
             rows = conn.execute(text(sql), {"schema": schema}).all()
+    elif db_type.lower() in ("sqlserver", "mssql"):
+        sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG = :db"
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"db": database}).all()
     else:
         # MySQL使用information_schema
         sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=:db AND TABLE_TYPE='BASE TABLE'"
@@ -69,6 +75,10 @@ def list_views(eng: Engine, database: str, db_type: str = "mysql") -> List[str]:
         schema = "public" if database == "public" else database
         with eng.connect() as conn:
             rows = conn.execute(text(sql), {"schema": schema}).all()
+    elif db_type.lower() in ("sqlserver", "mssql"):
+        sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_CATALOG = :db"
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"db": database}).all()
     else:
         sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=:db AND TABLE_TYPE='VIEW'"
         with eng.connect() as conn:
@@ -97,6 +107,10 @@ def list_procedures(eng: Engine, database: str, db_type: str = "mysql") -> List[
         schema = "public" if database == "public" else database
         with eng.connect() as conn:
             rows = conn.execute(text(sql), {"schema": schema}).all()
+    elif db_type.lower() in ("sqlserver", "mssql"):
+        sql = "SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_TYPE = 'PROCEDURE' AND ROUTINE_CATALOG = :db"
+        with eng.connect() as conn:
+            rows = conn.execute(text(sql), {"db": database}).all()
     else:
         sql = "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=:db AND ROUTINE_TYPE='PROCEDURE'"
         with eng.connect() as conn:
@@ -145,6 +159,27 @@ def table_info(eng: Engine, database: str, table: str, db_type: str = "mysql") -
         schema = "public" if database == "public" else database
         with eng.connect() as conn:
             cols = conn.execute(text(cols_sql), {"tb": table, "schema": schema}).mappings().all()
+    elif db_type.lower() in ("sqlserver", "mssql"):
+        cols_sql = """
+        SELECT 
+            c.COLUMN_NAME, 
+            c.DATA_TYPE, 
+            c.IS_NULLABLE, 
+            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 'PRI' ELSE '' END AS COLUMN_KEY
+        FROM INFORMATION_SCHEMA.COLUMNS c
+        LEFT JOIN (
+            SELECT kcu.COLUMN_NAME
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu 
+              ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+            WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
+              AND tc.TABLE_NAME = :tb AND tc.TABLE_CATALOG = :db
+        ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
+        WHERE c.TABLE_NAME = :tb AND c.TABLE_CATALOG = :db
+        ORDER BY c.ORDINAL_POSITION
+        """
+        with eng.connect() as conn:
+            cols = conn.execute(text(cols_sql), {"tb": table, "db": database}).mappings().all()
     else:
         # MySQL查询列信息
         cols_sql = """

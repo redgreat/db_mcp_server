@@ -28,6 +28,8 @@ class AdminDatabaseConfig:
     database: str
     username: str
     password: str
+    sslmode: str = "disable"
+    timezone: str = "Asia/Shanghai"
     pool_size: int = 10
     max_overflow: int = 20
 
@@ -96,5 +98,8 @@ class Config:
     def get_admin_db_url(self) -> str:
         """获取管理数据库连接URL"""
         db = self.admin_database
-        return f"postgresql+psycopg2://{db.username}:{db.password}@{db.host}:{db.port}/{db.database}"
+        url = f"postgresql+psycopg2://{db.username}:{db.password}@{db.host}:{db.port}/{db.database}"
+        if db.sslmode:
+            url += f"?sslmode={db.sslmode}"
+        return url
 

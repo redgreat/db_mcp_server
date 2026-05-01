@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import Config
-from src.admin.models import ensure_schema, create_default_admin
+from src.admin.models import ensure_schema, create_default_admin, initialize_default_llm_configs
 
 
 def main():
@@ -29,6 +29,10 @@ def main():
         # 创建默认管理员
         print("👤 创建默认管理员账号...")
         create_default_admin(engine, username="admin", password="admin123")
+        
+        # 创建默认 LLM 配置
+        print("🤖 初始化默认 LLM 配置...")
+        initialize_default_llm_configs(engine)
         
         print()
         print("🎉 管理数据库初始化完成!")

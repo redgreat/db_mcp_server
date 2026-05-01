@@ -1,0 +1,29 @@
+services:
+  db-mcp-server:
+    build:
+      context: .
+      dockerfile: DockerfileLocal
+    container_name: db_mcp_server
+    ports:
+      - "3000:3000"
+    environment:
+      - TZ=Asia/Shanghai
+      - LANG=zh_CN.UTF-8
+      - DISABLE_IPV6=true
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./data:/app/data
+    networks:
+      - dbmcp_network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/admin" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+networks:
+  dbmcp_network:
+    driver: bridge

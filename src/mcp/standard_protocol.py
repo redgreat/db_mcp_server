@@ -704,7 +704,7 @@ async def execute_mcp_tool(
                 )
 
         elif tool_name == "suggest_columns":
-            from ..tools.db_suggest_tool import get_table_full_info, analyze_impact
+            from ..tools.db_suggest_tool import get_table_full_info, analyze_impact, suggest_columns
             table_name = arguments.get("table")
             database = arguments.get("database") or conn_row["database"]
             if not table_name:
@@ -714,9 +714,11 @@ async def execute_mcp_tool(
                 result = get_table_full_info(engine, database, table_name, conn_row["db_type"])
             else:
                 columns_to_add = arguments.get("columns", [])
-                if not columns_to_add:
-                    raise Exception("缺少参数: columns（要添加的字段列表）")
-                result = analyze_impact(engine, database, table_name, columns_to_add, conn_row["db_type"])
+                if columns_to_add:
+                    result = analyze_impact(engine, database, table_name, columns_to_add, conn_row["db_type"])
+                else:
+                    # 如果没有传入 columns，则走 AI 智能推荐
+                    result = suggest_columns(engine, database, table_name, conn_row["db_type"])
 
         elif tool_name == "analyze_performance":
             from ..tools.db_performance_tool import (

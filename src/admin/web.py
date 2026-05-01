@@ -46,6 +46,12 @@ class ResetPasswordRequest(BaseModel):
     """重置用户密码请求"""
     new_password: str
 
+class UpdateLLMConfigRequest(BaseModel):
+    """更新大模型配置请求"""
+    base_url: str
+    api_key: Optional[str] = None
+    model_name: str
+
 
 
 def build_admin_router(cfg: Config):
@@ -408,16 +414,98 @@ def build_admin_router(cfg: Config):
         
         logger.info(f"重置密码: user_id={user_id} ({target_username}) by {current_user['username']}")
         return {"ok": True}
+        
+    # ==================== 大模型配置管理 ====================
+
+    @router.get("/admin/llm_configs")
+    def get_llm_configs(authorization: str = Header(None)):
+        """获取所有 LLM 配置列表"""
+        # 需要管理员权限
+        auth_service.require_admin(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        llm_configs = Table("llm_configs", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            rows = session.execute(select(llm_configs).order_by(llm_configs.c.id)).mappings().all()
+            
+            items = []
+            for r in rows:
+                item = dict(r)
+                # 不返回真实的 API Key，而是返回是否有设置
+                has_key = bool(item.get("api_key_enc"))
+                item["has_api_key"] = has_key
+                # 删除加密字段避免泄漏
+                if "api_key_enc" in item:
+                    del item["api_key_enc"]
+                items.append(item)
+                
+            return {"items": items}
+
+    @router.put("/admin/llm_configs/{config_id}")
+    def update_llm_config(config_id: int, req: UpdateLLMConfigRequest, authorization: str = Header(None)):
+        """更新指定的 LLM 配置"""
+        auth_service.require_admin(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        llm_configs = Table("llm_configs", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            existing = session.execute(select(llm_configs).where(llm_configs.c.id == config_id)).mappings().first()
+            if not existing:
+                raise HTTPException(status_code=404, detail="配置不存在")
+            
+            update_data = {
+                "base_url": req.base_url,
+                "model_name": req.model_name
+            }
+            
+            if req.api_key and req.api_key.strip():
+                update_data["api_key_enc"] = encrypt_text(req.api_key.strip(), cfg.security.master_key)
+                
+            session.execute(
+                update(llm_configs)
+                .where(llm_configs.c.id == config_id)
+                .values(**update_data)
+            )
+            session.commit()
+            
+            return {"ok": True, "message": "配置已更新"}
+            
+    @router.post("/admin/llm_configs/{config_id}/activate")
+    def activate_llm_config(config_id: int, authorization: str = Header(None)):
+        """激活指定的 LLM 配置"""
+        auth_service.require_admin(authorization)
+        
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        llm_configs = Table("llm_configs", meta, autoload_with=engine)
+        
+        with Session(engine) as session:
+            existing = session.execute(select(llm_configs).where(llm_configs.c.id == config_id)).mappings().first()
+            if not existing:
+                raise HTTPException(status_code=404, detail="配置不存在")
+                
+            # 将所有记录设为非激活
+            session.execute(update(llm_configs).values(is_active=False))
+            # 激活指定的配置
+            session.execute(update(llm_configs).where(llm_configs.c.id == config_id).values(is_active=True))
+            session.commit()
+            
+            return {"ok": True, "message": f"已激活配置: {existing['provider']}"}
     
     # ==================== 首页 ====================
     
     @router.get("/admin", response_class=HTMLResponse)
     def admin_index():
-        """重定向到Web管理界面"""
-        static_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'admin.html')
-        with open(static_path, 'r', encoding='utf-8') as f:
-            return HTMLResponse(content=f.read())
-        return HTMLResponse(content=html)
+        """重定向到 SvelteKit 管理后台"""
+        static_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'index.html')
+        if os.path.exists(static_path):
+            with open(static_path, 'r', encoding='utf-8') as f:
+                return HTMLResponse(content=f.read())
+        return HTMLResponse(content="<p>Frontend not built. Run: cd frontend && npm run build</p>", status_code=503)
     
     # ==================== 访问密钥管理 ====================
     
