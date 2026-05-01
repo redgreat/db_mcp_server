@@ -1,7 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from typing import List, Dict, Any, Optional
-import json
 import os
 import time
 
@@ -31,9 +30,9 @@ def get_db_summary(eng: Engine, database: str, db_type: str = "mysql") -> Dict[s
         with eng.connect() as conn:
             row = conn.execute(text("SELECT @@VERSION")).scalar()
             summary["version"] = row
-            
+
             row = conn.execute(text("""
-                SELECT collation_name 
+                SELECT collation_name
                 FROM sys.databases WHERE name = :db
             """), {"db": database}).mappings().first()
             if row:
@@ -77,11 +76,11 @@ def get_all_tables_with_comments(eng: Engine, database: str, db_type: str = "mys
             rows = conn.execute(text(sql), {"schema": schema}).mappings().all()
     elif db_type.lower() in ("sqlserver", "mssql"):
         sql = """
-            SELECT 
+            SELECT
                 t.name AS table_name,
                 ISNULL(ep.value, '') AS table_comment
             FROM sys.tables t
-            LEFT JOIN sys.extended_properties ep 
+            LEFT JOIN sys.extended_properties ep
                 ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
             ORDER BY t.name
         """
@@ -136,7 +135,7 @@ def get_table_columns_detail(eng: Engine, database: str, table: str, db_type: st
             rows = conn.execute(text(sql), {"tb": table, "schema": schema}).mappings().all()
     elif db_type.lower() in ("sqlserver", "mssql"):
         sql = """
-            SELECT 
+            SELECT
                 c.COLUMN_NAME AS column_name,
                 c.DATA_TYPE AS data_type,
                 c.CHARACTER_MAXIMUM_LENGTH AS character_maximum_length,
@@ -149,13 +148,14 @@ def get_table_columns_detail(eng: Engine, database: str, table: str, db_type: st
             FROM INFORMATION_SCHEMA.COLUMNS c
             LEFT JOIN sys.tables t ON t.name = c.TABLE_NAME
             LEFT JOIN sys.columns sc ON sc.object_id = t.object_id AND sc.name = c.COLUMN_NAME
-            LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = sc.column_id AND ep.name = 'MS_Description'
+            LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id
+                AND ep.minor_id = sc.column_id AND ep.name = 'MS_Description'
             LEFT JOIN (
                 SELECT kcu.COLUMN_NAME
                 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu 
+                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
                     ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
-                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
+                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
                     AND tc.TABLE_NAME = :tb AND tc.TABLE_CATALOG = :db
             ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
             WHERE c.TABLE_NAME = :tb AND c.TABLE_CATALOG = :db
@@ -199,7 +199,7 @@ def get_table_indexes(eng: Engine, database: str, table: str, db_type: str = "my
             rows = conn.execute(text(sql), {"schema": schema, "tb": table}).mappings().all()
     elif db_type.lower() in ("sqlserver", "mssql"):
         sql = """
-            SELECT 
+            SELECT
                 i.name AS index_name,
                 c.name AS column_name,
                 CASE WHEN i.is_unique = 1 THEN 0 ELSE 1 END AS non_unique,
@@ -227,6 +227,7 @@ def get_table_indexes(eng: Engine, database: str, table: str, db_type: str = "my
             rows = conn.execute(text(sql), {"db": database, "tb": table}).mappings().all()
 
     return [dict(r) for r in rows]
+
 
 def get_table_foreign_keys(eng: Engine, database: str, table: str, db_type: str = "mysql") -> List[Dict[str, Any]]:
     if db_type.lower() == "postgresql":
@@ -294,8 +295,8 @@ def generate_db_doc_markdown(eng: Engine, database: str, db_type: str = "mysql")
 
     lines.append(f"# 数据库说明文档 — {database}\n")
     lines.append("## 数据库概要\n")
-    lines.append(f"| 属性 | 值 |")
-    lines.append(f"|------|------|")
+    lines.append("| 属性 | 值 |")
+    lines.append("|------|------|")
     for k, v in summary.items():
         lines.append(f"| {k} | {v} |")
     lines.append("")
@@ -337,7 +338,7 @@ def generate_db_doc_markdown(eng: Engine, database: str, db_type: str = "mysql")
 
         indexes = get_table_indexes(eng, database, tname, db_type)
         if indexes:
-            lines.append(f"**索引:**\n")
+            lines.append("**索引:**\n")
             if db_type.lower() == "postgresql":
                 for idx in indexes:
                     lines.append(f"- `{idx['index_name']}`: {idx['index_definition']}")
@@ -357,10 +358,10 @@ def generate_db_doc_markdown(eng: Engine, database: str, db_type: str = "mysql")
                     cols = ", ".join(info["columns"])
                     lines.append(f"- `{name}`: {uq}{info['type']} ({cols})")
             lines.append("")
-        
+
         fks = get_table_foreign_keys(eng, database, tname, db_type)
         if fks:
-            lines.append(f"**外键:**\n")
+            lines.append("**外键:**\n")
             for fk in fks:
                 lines.append(
                     f"- `{fk['constraint_name']}`: {tname}.{fk['column_name']} → "
@@ -446,10 +447,11 @@ def _find_cjk_font() -> Optional[str]:
     return None
 
 
-def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None) -> Dict[str, Any]:
+def export_db_doc_pdf(
+    eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None
+) -> Dict[str, Any]:
     """生成 PDF 格式的数据库说明文档，返回 base64 编码的 PDF 内容"""
     from fpdf import FPDF
-    import base64
     import logging
 
     logger = logging.getLogger(__name__)
@@ -458,7 +460,7 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql", save_p
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_doc_{database}_{timestamp}.pdf"
-    
+
     # 获取通用的下载目录
     import os
     from pathlib import Path
@@ -530,7 +532,7 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql", save_p
             pdf.cell(0, 6, stripped, new_x="LMARGIN", new_y="NEXT")
 
     pdf_bytes = pdf.output()
-    
+
     with open(save_path, 'wb') as f:
         f.write(pdf_bytes)
     saved_to = os.path.abspath(save_path)
@@ -546,6 +548,7 @@ def export_db_doc_pdf(eng: Engine, database: str, db_type: str = "mysql", save_p
         "markdown_preview": md_content[:2000] + "\n... (为节省空间已截断)" if len(md_content) > 2000 else md_content
     }
 
+
 def generate_db_doc_markdown_parts(
     eng: Engine,
     database: str,
@@ -554,20 +557,20 @@ def generate_db_doc_markdown_parts(
     max_tables_per_part: Optional[int] = None
 ) -> List[str]:
     """生成按片段划分的 Markdown 文档
-    
+
     Args:
         eng: 数据库引擎
         database: 库名
         db_type: 数据库类型
         max_chars: 单片段最大字符数
         max_tables_per_part: 单片段最大表数量
-        
+
     Returns:
         Markdown 文本片段列表
     """
     summary = get_db_summary(eng, database, db_type)
     tables = get_all_tables_with_comments(eng, database, db_type)
-    
+
     header_lines = []
     header_lines.append(f"# 数据库说明文档 — {database}\n")
     header_lines.append("## 数据库概要\n")
@@ -576,7 +579,7 @@ def generate_db_doc_markdown_parts(
     for k, v in summary.items():
         header_lines.append(f"| {k} | {v} |")
     header_lines.append("")
-    
+
     list_lines = []
     list_lines.append("## 表汇总\n")
     list_lines.append("| 序号 | 表名 | 备注 |")
@@ -584,7 +587,7 @@ def generate_db_doc_markdown_parts(
     for i, t in enumerate(tables, 1):
         list_lines.append(f"| {i} | {t['table_name']} | {t['table_comment']} |")
     list_lines.append("")
-    
+
     def table_block(tname: str, tcomment: str) -> str:
         lines = []
         lines.append(f"## {tname}")
@@ -641,19 +644,19 @@ def generate_db_doc_markdown_parts(
                 )
             lines.append("")
         return "\n".join(lines)
-    
+
     parts: List[str] = []
     current_lines: List[str] = []
     current_tables = 0
-    
+
     # 首片段加入概要与表汇总
     current_lines.extend(header_lines)
     current_lines.extend(list_lines)
-    
+
     for t in tables:
         block = table_block(t["table_name"], t["table_comment"])
         # 预检查是否需要切片
-        next_len = sum(len(l) for l in current_lines) + len(block)
+        next_len = sum(len(ln) for ln in current_lines) + len(block)
         hit_chars = next_len > max_chars
         hit_tables = max_tables_per_part is not None and current_tables >= max_tables_per_part
         if hit_chars or hit_tables:
@@ -664,11 +667,12 @@ def generate_db_doc_markdown_parts(
             current_lines.append(f"# 数据库说明文档 — {database}（分片）\n")
         current_lines.append(block)
         current_tables += 1
-    
+
     if current_lines:
         parts.append("\n".join(current_lines))
-    
+
     return parts
+
 
 def save_db_doc_markdown_split(
     eng: Engine,
@@ -680,7 +684,7 @@ def save_db_doc_markdown_split(
     max_tables_per_part: Optional[int] = None
 ) -> List[str]:
     """生成并保存分片 Markdown 文档
-    
+
     Args:
         eng: 数据库引擎
         database: 库名
@@ -689,7 +693,7 @@ def save_db_doc_markdown_split(
         filename_prefix: 文件名前缀
         max_chars: 单片段最大字符数
         max_tables_per_part: 单片段最大表数量
-        
+
     Returns:
         保存的文件路径列表
     """

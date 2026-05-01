@@ -473,7 +473,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (showAddKeyModal = false)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (showAddKeyModal = false)}></button>
 	</div>
 {/if}
 
@@ -538,7 +538,7 @@
 				</form>
 			{/if}
 		</div>
-		<div class="modal-backdrop" onclick={() => (permKeyId = null)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (permKeyId = null)}></button>
 	</div>
 {/if}
 
@@ -571,7 +571,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (wlKeyId = null)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (wlKeyId = null)}></button>
 	</div>
 {/if}
 
@@ -604,7 +604,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (assignKeyId = null)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (assignKeyId = null)}></button>
 	</div>
 {/if}
 

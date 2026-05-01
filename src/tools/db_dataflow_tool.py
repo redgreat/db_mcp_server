@@ -1,9 +1,8 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import re
 import time
-import base64
 import logging
 
 
@@ -233,7 +232,7 @@ def generate_dataflow_description(eng: Engine, database: str, db_type: str = "my
     analysis = analyze_data_flow(eng, database, db_type)
 
     lines = [f"# 数据库 {database} 数据流分析\n"]
-    lines.append(f"## 概要\n")
+    lines.append("## 概要\n")
     lines.append(f"- 数据表: {len(analysis['tables'])} 张")
     lines.append(f"- 视图: {len(analysis['views'])} 个")
     lines.append(f"- 存储过程: {len(analysis['procedures'])} 个")
@@ -284,21 +283,23 @@ def generate_dataflow_description(eng: Engine, database: str, db_type: str = "my
     return "\n".join(lines)
 
 
-def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None) -> Dict[str, Any]:
+def export_dataflow_report_pdf(
+    eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None
+) -> Dict[str, Any]:
     """生成 PDF 格式的数据流报告，返回 base64 编码的 PDF 内容"""
     from fpdf import FPDF
     from .db_doc_tool import _find_cjk_font
     import os
-    
+
     logger = logging.getLogger(__name__)
-    
+
     # 生成内容
     mermaid_data = generate_dataflow_mermaid(eng, database, db_type)
     text_desc = generate_dataflow_description(eng, database, db_type)
-    
+
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_dataflow_{database}_{timestamp}.pdf"
-    
+
     # 获取通用的下载目录
     from pathlib import Path
     downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
@@ -323,7 +324,7 @@ def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql
         raise RuntimeError("未找到可用的中文字体，无法生成 PDF。")
 
     pdf.add_page()
-    
+
     def set_font(style="", size=10):
         if "B" in style.upper():
             pdf.set_font("CJKb", "", size + 1)
@@ -334,7 +335,7 @@ def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql
     set_font("B", 18)
     pdf.cell(0, 12, f"数据库数据流报告 — {database}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
-    
+
     # 绘制文字描述部分
     for line in text_desc.split("\n"):
         stripped = line.strip()
@@ -357,13 +358,13 @@ def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql
     set_font("B", 14)
     pdf.cell(0, 10, "Mermaid 数据流图源码 (可在支持 Mermaid 的编辑器中渲染)", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
-    
+
     pdf.set_fill_color(240, 240, 240)
     set_font("", 8)
     pdf.multi_cell(0, 5, mermaid_data["mermaid"], border=1, fill=True)
 
     pdf_bytes = pdf.output()
-    
+
     with open(save_path, 'wb') as f:
         f.write(pdf_bytes)
     saved_to = os.path.abspath(save_path)
@@ -371,10 +372,12 @@ def export_dataflow_report_pdf(eng: Engine, database: str, db_type: str = "mysql
 
     download_url = f"/downloads/{filename}"
 
+    mermaid_src = mermaid_data["mermaid"]
+    mermaid_preview = mermaid_src[:2000] + "\n... (为节省空间已截断)" if len(mermaid_src) > 2000 else mermaid_src
     return {
         "success": True,
-        "message": f"数据流PDF报告生成成功。",
+        "format": "pdf",
         "file_path": saved_to,
         "download_url": download_url,
-        "mermaid_preview": mermaid_data["mermaid"][:2000] + "\n... (为节省空间已截断)" if len(mermaid_data["mermaid"]) > 2000 else mermaid_data["mermaid"]
+        "mermaid_preview": mermaid_preview
     }

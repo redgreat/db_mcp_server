@@ -1,12 +1,11 @@
 import base64
 import hashlib
 from cryptography.fernet import Fernet, InvalidToken
-from typing import Optional
 
 
 def _get_fernet(master_key: str) -> Fernet:
     """基于master_key创建固定的Fernet加密器
-    
+
     使用SHA256将master_key转换为32字节密钥，确保相同的master_key
     总是生成相同的Fernet密钥，从而可以正确解密之前加密的数据
     """
@@ -30,4 +29,3 @@ def decrypt_text(cipher: str, master_key: str) -> str:
         return f.decrypt(cipher.encode("utf-8")).decode("utf-8")
     except InvalidToken:
         return ""
-

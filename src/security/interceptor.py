@@ -7,4 +7,3 @@ def intercept_sql(sql: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
     safe = is_safe_sql(sql)
     score = risk_score(sql)
     return {"safe": safe, "risk": score}
-

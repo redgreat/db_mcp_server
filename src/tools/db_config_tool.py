@@ -1,6 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 
 def get_mysql_variables(eng: Engine) -> Dict[str, str]:
@@ -195,7 +195,11 @@ def analyze_mysql_config(eng: Engine) -> Dict[str, Any]:
                 "parameter": "innodb_buffer_pool_size",
                 "current": _format_bytes(bp_size),
                 "severity": "high",
-                "message": f"Buffer Pool 命中率仅 {hit_ratio}%，建议增大 innodb_buffer_pool_size（当前 {_format_bytes(bp_size)}），推荐为物理内存的 60-80%"
+                "message": (
+                    f"Buffer Pool 命中率仅 {hit_ratio}%，"
+                    f"建议增大 innodb_buffer_pool_size"
+                    f"（当前 {_format_bytes(bp_size)}），推荐为物理内存的 60-80%"
+                )
             })
 
     max_conn = int(variables.get("max_connections", 151))
@@ -227,7 +231,7 @@ def analyze_mysql_config(eng: Engine) -> Dict[str, Any]:
             "parameter": "tmp_table_size / max_heap_table_size",
             "current": tmp_size,
             "severity": "medium",
-            "message": f"磁盘临时表比率 {round(tmp_disk/tmp_tables*100)}%，建议增大 tmp_table_size 和 max_heap_table_size"
+            "message": f"磁盘临时表比率 {round(tmp_disk / tmp_tables * 100)}%，建议增大 tmp_table_size 和 max_heap_table_size"
         })
 
     thread_cache = int(variables.get("thread_cache_size", 0))
@@ -250,7 +254,7 @@ def analyze_mysql_config(eng: Engine) -> Dict[str, Any]:
             "parameter": "long_query_time",
             "current": long_qt,
             "severity": "medium",
-            "message": f"慢查询占比 {round(slow_queries/questions*100, 3)}%，当前阈值 {long_qt}s，建议配合分析慢查询日志"
+            "message": f"慢查询占比 {round(slow_queries / questions * 100, 3)}%，当前阈值 {long_qt}s，建议配合分析慢查询日志"
         })
 
     log_idx = variables.get("log_queries_not_using_indexes", "OFF")
@@ -272,7 +276,7 @@ def analyze_mysql_config(eng: Engine) -> Dict[str, Any]:
             "current": str(table_cache),
             "recommended": str(max(table_cache, table_cache * 2)),
             "severity": "low",
-            "message": f"表打开频率偏高 ({round(table_open/uptime, 1)}/s)，建议增大 table_open_cache"
+            "message": f"表打开频率偏高 ({round(table_open / uptime, 1)}/s)，建议增大 table_open_cache"
         })
 
     return {
@@ -433,33 +437,33 @@ def analyze_db_config(eng: Engine, db_type: str = "mysql") -> Dict[str, Any]:
         result = analyze_pg_config(eng)
     else:
         result = analyze_mysql_config(eng)
-        
+
     result["ai_analysis"] = ""
     result["ai_usage"] = None
-        
+
     try:
         from ..ai.llm_client import LLMClient
         llm = LLMClient()
     except Exception:
         llm = None
-        
+
     if llm and llm.is_enabled():
         system_prompt = (
             f"你是一个极其资深的 {db_type} 数据库管理员。用户会提供一组从数据库中抓取的配置参数和运行状态指标。\n"
             "请你综合这些数据，寻找配置中存在的不合理项，并出具一份清晰、具有高度实操性的《数据库参数配置调优建议报告》。\n"
             "请直接以 Markdown 输出，无需多余寒暄。"
         )
-        
+
         import json
-        
+
         # 裁剪下长内容防止过长
         config_data = result.get("current_config", {})
         status_data = result.get("runtime_status", result.get("runtime_stats", {}))
-        
+
         user_prompt = "配置与状态数据如下：\n"
         user_prompt += f"当前配置：{json.dumps(config_data, ensure_ascii=False)[:3000]}\n...\n"
         user_prompt += f"运行状态：{json.dumps(status_data, ensure_ascii=False)[:3000]}\n...\n"
-        
+
         try:
             ai_result = llm.ask(system_prompt, user_prompt)
             result["ai_analysis"] = ai_result["content"]

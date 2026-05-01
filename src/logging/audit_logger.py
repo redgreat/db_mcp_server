@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 class AuditLogger:
     """审计日志记录器"""
-    
+
     def __init__(self, engine: Engine):
         """
         Args:
@@ -19,7 +19,7 @@ class AuditLogger:
         self.engine = engine
         self.meta = MetaData()
         self.audit_logs = Table("audit_logs", self.meta, autoload_with=engine)
-    
+
     def log(
         self,
         operation: str,
@@ -34,7 +34,7 @@ class AuditLogger:
         metadata: Optional[Dict[str, Any]] = None
     ):
         """记录审计日志
-        
+
         Args:
             operation: 操作类型（query/transaction/metadata等）
             status: 状态（success/error）

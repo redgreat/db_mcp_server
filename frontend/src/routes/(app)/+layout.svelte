@@ -238,7 +238,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (showChangePwd = false)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (showChangePwd = false)}></button>
 	</div>
 {/if}
 

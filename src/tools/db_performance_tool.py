@@ -1,6 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 
 def get_connection_stats(eng: Engine, db_type: str = "mysql") -> Dict[str, Any]:
@@ -252,7 +252,10 @@ def generate_performance_report(eng: Engine, database: str, db_type: str = "mysq
         suggestions.append({
             "type": "connection",
             "severity": "high",
-            "message": f"连接数使用率已达 {total_conn}/{max_conn} ({round(total_conn/max_conn*100)}%)，建议增加 max_connections 或优化连接池"
+            "message": (
+                f"连接数使用率已达 {total_conn}/{max_conn} "
+                f"({round(total_conn / max_conn * 100)}%)，建议增加 max_connections 或优化连接池"
+            ),
         })
 
     if lock_info:
@@ -288,7 +291,10 @@ def generate_performance_report(eng: Engine, database: str, db_type: str = "mysq
                 suggestions.append({
                     "type": "index",
                     "severity": "low",
-                    "message": f"索引 {idx['index_name']}（表 {idx['table_name']}）从未被使用，大小 {idx.get('index_size', 'N/A')}，可考虑删除"
+                    "message": (
+                        f"索引 {idx['index_name']}（表 {idx['table_name']}）"
+                        f"从未被使用，大小 {idx.get('index_size', 'N/A')}，可考虑删除"
+                    )
                 })
 
     for sq in slow_queries[:3]:
@@ -308,19 +314,22 @@ def generate_performance_report(eng: Engine, database: str, db_type: str = "mysq
         "table_stats": table_stats[:20],
         "index_usage_summary": {
             "total_indexes": len(index_usage),
-            "unused_indexes": len([i for i in index_usage if int(i.get("scans", 0)) == 0]) if db_type.lower() == "postgresql" else None
+            "unused_indexes": (
+                len([i for i in index_usage if int(i.get("scans", 0)) == 0])
+                if db_type.lower() == "postgresql" else None
+            )
         },
         "suggestions": suggestions,
         "ai_analysis": "",
         "ai_usage": None
     }
-    
+
     try:
         from ..ai.llm_client import LLMClient
         llm = LLMClient()
     except Exception:
         llm = None
-        
+
     if llm and llm.is_enabled():
         system_prompt = (
             "你是一个极其资深的 DBA（数据库管理员）。用户会提供一组从数据库中抓取的性能数据，"
@@ -328,14 +337,14 @@ def generate_performance_report(eng: Engine, database: str, db_type: str = "mysq
             "请你综合这些数据，出具一份清晰、具有高度实操性的《数据库性能诊断与调优报告》。\n"
             "请直接以 Markdown 输出，无需多余寒暄。"
         )
-        
+
         import json
         user_prompt = "性能采集数据如下：\n"
         user_prompt += f"连接状态：{json.dumps(conn_stats, ensure_ascii=False)}\n"
         user_prompt += f"锁等待：{json.dumps(lock_info, ensure_ascii=False)}\n"
         user_prompt += f"慢查询 Top5：{json.dumps(slow_queries[:5], ensure_ascii=False)}\n"
         user_prompt += f"部分表统计：{json.dumps(table_stats[:5], ensure_ascii=False)}\n"
-        
+
         try:
             ai_result = llm.ask(system_prompt, user_prompt)
             result["ai_analysis"] = ai_result["content"]

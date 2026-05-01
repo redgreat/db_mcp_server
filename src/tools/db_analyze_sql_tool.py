@@ -1,6 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import re
 
 
@@ -23,7 +23,7 @@ def get_explain_plan(eng: Engine, sql: str, db_type: str = "mysql") -> Dict[str,
                 import json
                 plan = json.loads(raw)
                 return {"format": "json", "plan": plan}
-        except Exception as e:
+        except Exception:
             try:
                 rows = conn.execute(text(f"EXPLAIN {sql}")).all()
                 lines = [str(r[0]) if len(r) == 1 else str(r) for r in rows]
@@ -127,7 +127,7 @@ def _generate_index_suggestions(sql: str, tables: List[str],
         r'ORDER\s+BY\s+([\w\s,]+?)(?:\s+ASC|\s+DESC|\s+LIMIT|\s*$|\s*\))',
         sql, re.IGNORECASE
     )
-    group_cols = re.findall(
+    _group_cols = re.findall(  # noqa: F841
         r'GROUP\s+BY\s+([\w\s,]+?)(?:\s+HAVING|\s+ORDER|\s+LIMIT|\s*$|\s*\))',
         sql, re.IGNORECASE
     )
@@ -264,13 +264,13 @@ def analyze_sql(eng: Engine, database: str, sql: str, db_type: str = "mysql") ->
             "2. SQL 语句的高效改写建议（并解释为什么）。\n"
             "请直接输出 Markdown 格式的分析报告，无需多余闲聊。"
         )
-        
+
         user_prompt = f"### SQL 语句\n```sql\n{sql}\n```\n\n### 涉及表的现有索引\n"
         for tbl, idxs in existing_indexes.items():
             user_prompt += f"**表 {tbl}**:\n```json\n{idxs}\n```\n"
-        
+
         user_prompt += f"\n### EXPLAIN 执行计划\n```json\n{result['explain_plan']}\n```\n"
-        
+
         try:
             ai_result = llm.ask(system_prompt, user_prompt)
             result["ai_assessment"] = ai_result["content"]
@@ -281,7 +281,6 @@ def analyze_sql(eng: Engine, database: str, sql: str, db_type: str = "mysql") ->
             result["overall_assessment"] = "⚠️ AI 分析失败，已降级回基础规则分析。"
     else:
         # 如果没有配置 AI，使用原有的统计逻辑
-        severity_order = {"high": 0, "medium": 1, "low": 2}
         all_issues = result["plan_issues"] + result["index_suggestions"] + result["rewrite_suggestions"]
         if not all_issues:
             result["overall_assessment"] = "SQL 质量良好，未发现明显性能问题"

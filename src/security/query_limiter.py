@@ -20,4 +20,3 @@ class QueryLimiter:
             return False
         self.state[key] = (count + 1, reset_at)
         return True
-

@@ -14,7 +14,7 @@ from ..security.data_masker import DataMasker
 from ..logging.audit_logger import AuditLogger
 from ..config import Config
 from ..security.secret import decrypt_text
-from sqlalchemy import create_engine, Table, MetaData, select
+from sqlalchemy import Table, MetaData, select
 from sqlalchemy.orm import Session
 import time
 import json
@@ -37,13 +37,13 @@ def build_mcp_router(
     """构建MCP路由器"""
     router = APIRouter()
     perm_checker = MCPPermissionChecker(admin_engine)
-    
+
     @router.get("/mcp/tools")
     def list_mcp_tools(x_access_key: str = Header(default="")):
         """列出所有可用的MCP工具"""
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
-        
+
         # 验证APPKEY有效性
         with Session(admin_engine) as session:
             meta = MetaData()
@@ -51,15 +51,15 @@ def build_mcp_router(
             key_row = session.execute(
                 select(keys).where(
                     keys.c.ak == x_access_key,
-                    keys.c.enabled == True
+                    keys.c.enabled == True  # noqa: E712
                 )
             ).first()
-            
+
             if not key_row:
                 raise HTTPException(status_code=401, detail="无效或已禁用的访问密钥")
-        
+
         return {"tools": get_tool_definitions()}
-    
+
     @router.post("/mcp/call")
     def call_mcp_tool(
         req: MCPCallRequest,
@@ -69,34 +69,34 @@ def build_mcp_router(
         """调用MCP工具"""
         start_time = time.time()
         client_ip = request.client.host if request.client else None
-        
+
         try:
             if not x_access_key:
                 raise HTTPException(status_code=401, detail="缺少访问密钥")
-            
+
             # IP白名单检查
             if client_ip and not ip_checker.check_access(client_ip, x_access_key):
                 raise HTTPException(
                     status_code=403,
                     detail=f"IP {client_ip} 不在访问密钥的白名单中"
                 )
-            
+
             # 获取工具定义
             tool = get_tool_by_name(req.tool)
             if not tool:
                 raise HTTPException(status_code=404, detail=f"工具 {req.tool} 不存在")
-            
+
             # 提取参数
             args = req.arguments
             connection_id = args.get("connection_id")
-            
+
             # compare_schemas 使用 source_connection_id / target_connection_id
             if connection_id is None and req.tool != "compare_schemas":
                 raise HTTPException(
                     status_code=400,
                     detail="缺少必需参数: connection_id"
                 )
-            
+
             # 执行工具
             result = _execute_tool(
                 tool_name=req.tool,
@@ -108,9 +108,9 @@ def build_mcp_router(
                 data_masker=data_masker,
                 admin_engine=admin_engine
             )
-            
+
             duration_ms = int((time.time() - start_time) * 1000)
-            
+
             # 记录审计日志
             audit_logger.log(
                 operation=f"mcp_{req.tool}",
@@ -122,12 +122,12 @@ def build_mcp_router(
                 duration_ms=duration_ms,
                 metadata={"tool": req.tool, "arguments": args}
             )
-            
+
             return {"result": result}
-            
+
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            
+
             # 记录失败日志
             args = req.arguments
             connection_id = args.get("connection_id")
@@ -143,7 +143,7 @@ def build_mcp_router(
                 metadata={"tool": req.tool, "arguments": req.arguments}
             )
             raise
-    
+
     return router
 
 
@@ -158,7 +158,7 @@ def _execute_tool(
     admin_engine: Any
 ) -> Any:
     """执行MCP工具"""
-    
+
     # 1. 特殊处理 list_connections
     if tool_name == "list_connections":
         search = args.get("search", "")
@@ -168,25 +168,25 @@ def _execute_tool(
             key_row = session.execute(
                 select(keys).where(keys.c.ak == access_key)
             ).mappings().first()
-            
+
             if not key_row:
                 raise Exception("访问密钥不存在")
-            
+
             perms = Table("permissions", meta, autoload_with=admin_engine)
             conns = Table("db_connections", meta, autoload_with=admin_engine)
-            
+
             stmt = select(
-                conns.c.id, 
-                conns.c.name.label("conn_name"), 
-                conns.c.db_type, 
-                conns.c.host, 
+                conns.c.id,
+                conns.c.name.label("conn_name"),
+                conns.c.db_type,
+                conns.c.host,
                 conns.c.database
             ).select_from(
                 conns.join(perms, conns.c.id == perms.c.connection_id)
             ).where(
                 perms.c.key_id == key_row["id"]
             )
-            
+
             from sqlalchemy import or_
             if search:
                 # 同时对连接名称和数据库类型进行模糊匹配
@@ -196,7 +196,7 @@ def _execute_tool(
                         conns.c.db_type.ilike(f"%{search}%")
                     )
                 )
-                
+
             conn_rows = session.execute(stmt).mappings().all()
             result = {"connections": [dict(r) for r in conn_rows]}
             # 返回符合 MCP 规范的标准格式
@@ -263,7 +263,7 @@ def _execute_tool(
             database = args.get("database") or db_name
             procs = list_procedures(eng, database, db_type)
             result = {"database": database, "procedures": procs}
-        
+
         elif tool_name == "describe_table":
             perm_checker.check_permission(access_key, connection_id)
             table_name = args.get("table")
@@ -273,7 +273,7 @@ def _execute_tool(
             database = args.get("database") or db_name
             info = table_info(eng, database, table_name, db_type)
             result = {"database": database, "table": table_name, "columns": info["columns"]}
-        
+
         elif tool_name == "execute_query":
             perm_checker.check_permission(access_key, connection_id)
             sql = args.get("sql")
@@ -286,7 +286,7 @@ def _execute_tool(
             rows = qp.run_query(eng, sql)
             masked_rows = data_masker.mask_results(rows)
             result = {"rows": masked_rows, "count": len(masked_rows)}
-        
+
         elif tool_name == "execute_sql":
             sql = args.get("sql")
             if not sql:
@@ -305,7 +305,7 @@ def _execute_tool(
                     rows = [dict(r._mapping) for r in res_proxy]
                     masked_rows = data_masker.mask_results(rows)
                     result = {"rows": masked_rows, "count": len(masked_rows)}
-                except:
+                except Exception:
                     result = {"success": True, "message": "SQL执行成功"}
 
         elif tool_name == "export_db_doc":
@@ -331,7 +331,8 @@ def _execute_tool(
             from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
             result = {}
             if output_type in ("mermaid", "both"):
-                result["mermaid_result"] = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
+                result["mermaid_result"] = generate_er_mermaid(
+                    eng, database, db_type, include_columns, include_implicit)
             if output_type in ("text", "both"):
                 result["text_description"] = generate_er_text_description(eng, database, db_type, include_implicit)
 
@@ -440,7 +441,7 @@ def _execute_tool(
                 }
             ]
         }
-    
+
     except Exception as e:
         # 将异常包装为 MCP 错误返回，以便 AI 理解失败原因
         return {
@@ -457,23 +458,23 @@ def _execute_tool(
 def _get_engine(cfg: Config, qp: QueryProxy, connection_id: int):
     """获取数据库引擎"""
     from sqlalchemy import Table, MetaData, create_engine
-    
+
     admin_db_path = cfg.get_admin_db_url()
     admin_engine = create_engine(admin_db_path)
-    
+
     with Session(admin_engine) as session:
         meta = MetaData()
         db_connections = Table("db_connections", meta, autoload_with=admin_engine)
         conn_row = session.execute(
             select(db_connections).where(db_connections.c.id == connection_id)
         ).mappings().first()
-        
+
         if not conn_row:
             raise HTTPException(status_code=404, detail=f"连接 ID {connection_id} 不存在")
-        
+
         # 解密密码
         pwd = decrypt_text(conn_row['password_enc'], cfg.security.master_key)
-        
+
         # 获取引擎
         eng = qp.get_engine(
             conn_row['host'],
@@ -483,5 +484,5 @@ def _get_engine(cfg: Config, qp: QueryProxy, connection_id: int):
             conn_row['database'],
             conn_row['db_type']
         )
-        
+
         return eng, conn_row['database'], conn_row['db_type']

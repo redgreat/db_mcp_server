@@ -173,23 +173,23 @@ def analyze_impact(eng: Engine, database: str, table: str,
 def suggest_columns(eng: Engine, database: str, table: str, db_type: str = "mysql") -> Dict[str, Any]:
     """智能字段添加建议：基于表名和现有字段，使用大模型推荐合适的扩展字段"""
     import json
-    
+
     # 1. 获取表当前所有信息
     info = get_table_full_info(eng, database, table, db_type)
-    
+
     result = {
         "table": table,
         "existing_columns": [c["column_name"] for c in info["columns"]],
         "ai_suggestions": "",
         "ai_usage": None
     }
-    
+
     try:
         from ..ai.llm_client import LLMClient
         llm = LLMClient()
     except Exception:
         llm = None
-        
+
     if llm and llm.is_enabled():
         system_prompt = (
             "你是一个业务架构师和数据库建模专家。用户将提供一个数据库表的名字及它现有的字段列表。\n"
@@ -197,9 +197,9 @@ def suggest_columns(eng: Engine, database: str, table: str, db_type: str = "mysq
             "请直接返回 Markdown 格式，包含字段名、建议类型、长度以及推荐理由。\n"
             "切勿闲聊。"
         )
-        
+
         user_prompt = f"表名: {table}\n现有字段:\n```json\n{json.dumps(info['columns'], ensure_ascii=False, indent=2)}\n```"
-        
+
         try:
             ai_result = llm.ask(system_prompt, user_prompt)
             result["ai_suggestions"] = ai_result["content"]
@@ -208,5 +208,5 @@ def suggest_columns(eng: Engine, database: str, table: str, db_type: str = "mysq
             result["ai_suggestions"] = f"AI 调用失败：{e}"
     else:
         result["ai_suggestions"] = "⚠️ AI 智能分析未启用，请在系统后台配置大模型。"
-        
+
     return result

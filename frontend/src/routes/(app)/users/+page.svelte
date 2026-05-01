@@ -279,7 +279,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (showCreateModal = false)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (showCreateModal = false)}></button>
 	</div>
 {/if}
 
@@ -312,7 +312,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (editUser = null)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (editUser = null)}></button>
 	</div>
 {/if}
 
@@ -344,7 +344,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (resetUser = null)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (resetUser = null)}></button>
 	</div>
 {/if}
 

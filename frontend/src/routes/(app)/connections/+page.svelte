@@ -267,7 +267,7 @@
 				</div>
 			</form>
 		</div>
-		<div class="modal-backdrop" onclick={() => (showAddModal = false)}></div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (showAddModal = false)}></button>
 	</div>
 {/if}
 

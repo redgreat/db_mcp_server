@@ -6,12 +6,12 @@ from typing import Dict, Any, List
 
 class MCPTool:
     """MCP工具基类"""
-    
+
     def __init__(self, name: str, description: str, input_schema: Dict[str, Any]):
         self.name = name
         self.description = description
         self.input_schema = input_schema
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为MCP工具定义字典"""
         return {
@@ -108,7 +108,7 @@ MCP_TOOLS = [
             "required": ["connection_id"]
         }
     ),
-    
+
     MCPTool(
         name="describe_table",
         description="查询指定表的结构信息（字段名、类型、键等）",
@@ -131,7 +131,7 @@ MCP_TOOLS = [
             "required": ["connection_id", "table"]
         }
     ),
-    
+
     MCPTool(
         name="execute_query",
         description="执行SELECT查询语句，返回查询结果（只读操作）",
@@ -150,7 +150,7 @@ MCP_TOOLS = [
             "required": ["connection_id", "sql"]
         }
     ),
-    
+
     MCPTool(
         name="execute_sql",
         description="执行任意SQL语句，包括DDL操作（需要DDL权限）",
@@ -200,7 +200,11 @@ MCP_TOOLS = [
 
     MCPTool(
         name="generate_er_diagram",
-        description="生成数据库 ER 图。分析整库表结构和外键关系，自动推断命名约定中的隐含关系（如 user_id → users），输出 Mermaid erDiagram 代码和文字描述。可用于确认实体间关系后再次调整。",
+        description=(
+            "生成数据库 ER 图。分析整库表结构和外键关系，"
+            "自动推断命名约定中的隐含关系（如 user_id → users），"
+            "输出 Mermaid erDiagram 代码和文字描述。可用于确认实体间关系后再次调整。"
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -398,7 +402,11 @@ MCP_TOOLS = [
 
     MCPTool(
         name="analyze_sql",
-        description="SQL 审查工具。对输入的 SQL 进行执行计划分析（EXPLAIN）、全表扫描检测、索引使用建议、SQL 改写建议（如 SELECT * → 指定字段、NOT IN → NOT EXISTS 等）。",
+        description=(
+            "SQL 审查工具。对输入的 SQL 进行执行计划分析（EXPLAIN）、"
+            "全表扫描检测、索引使用建议、"
+            "SQL 改写建议（如 SELECT * → 指定字段、NOT IN → NOT EXISTS 等）。"
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -448,7 +456,11 @@ MCP_TOOLS = [
 
     MCPTool(
         name="analyze_db_config",
-        description="数据库配置参数分析与调优建议。读取当前数据库配置参数和运行状态，分析 Buffer Pool 命中率、连接数使用率、临时表磁盘比率、慢查询比例等指标，给出参数调整建议。支持 MySQL 和 PostgreSQL。",
+        description=(
+            "数据库配置参数分析与调优建议。读取当前数据库配置参数和运行状态，"
+            "分析 Buffer Pool 命中率、连接数使用率、临时表磁盘比率、"
+            "慢查询比例等指标，给出参数调整建议。支持 MySQL 和 PostgreSQL。"
+        ),
         input_schema={
             "type": "object",
             "properties": {
