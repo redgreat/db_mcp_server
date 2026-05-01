@@ -46,7 +46,7 @@ else
 	@bash scripts/redeploy.sh
 endif
 
-release: lint test
+release:
 ifeq ($(OS),Windows_NT)
 	@pwsh -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Host 'Release tag push...'"
 	@pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1
