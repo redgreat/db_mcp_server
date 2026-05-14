@@ -20,6 +20,12 @@ def backup_table(eng: Engine, database: str, table: str,
             """
             schema = "public" if database == "public" else database
             row = conn.execute(text(check_sql), {"schema": schema, "tb": backup_name}).mappings().first()
+        elif db_type.lower() in ("sqlserver", "mssql"):
+            check_sql = """
+                SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_CATALOG = :db AND TABLE_NAME = :tb
+            """
+            row = conn.execute(text(check_sql), {"db": database, "tb": backup_name}).mappings().first()
         else:
             check_sql = """
                 SELECT COUNT(*) AS cnt FROM information_schema.TABLES
@@ -37,6 +43,9 @@ def backup_table(eng: Engine, database: str, table: str,
         if db_type.lower() == "postgresql":
             src_count = conn.execute(text(f'SELECT COUNT(*) AS cnt FROM "{table}"')).mappings().first()
             create_sql = f'CREATE TABLE "{backup_name}" AS SELECT * FROM "{table}"'
+        elif db_type.lower() in ("sqlserver", "mssql"):
+            src_count = conn.execute(text(f"SELECT COUNT(*) AS cnt FROM [{table}]")).mappings().first()
+            create_sql = f"SELECT * INTO [{backup_name}] FROM [{table}]"
         else:
             src_count = conn.execute(text(f"SELECT COUNT(*) AS cnt FROM `{table}`")).mappings().first()
             create_sql = f"CREATE TABLE `{backup_name}` AS SELECT * FROM `{table}`"
@@ -48,6 +57,8 @@ def backup_table(eng: Engine, database: str, table: str,
 
         if db_type.lower() == "postgresql":
             bak_count = conn.execute(text(f'SELECT COUNT(*) AS cnt FROM "{backup_name}"')).mappings().first()
+        elif db_type.lower() in ("sqlserver", "mssql"):
+            bak_count = conn.execute(text(f"SELECT COUNT(*) AS cnt FROM [{backup_name}]")).mappings().first()
         else:
             bak_count = conn.execute(text(f"SELECT COUNT(*) AS cnt FROM `{backup_name}`")).mappings().first()
 

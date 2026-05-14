@@ -10,4 +10,3 @@ def mask_sensitive(data: Dict[str, Any]) -> Dict[str, Any]:
         else:
             out[k] = v
     return out
-

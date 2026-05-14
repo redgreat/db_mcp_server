@@ -149,7 +149,7 @@ def _generate_value(col: Dict, idx: int, fk_values: Optional[List] = None) -> st
         if "url" in cname or "link" in cname:
             return f"'https://example.com/{idx}'"
         if "ip" in cname or "address" in cname and "email" not in cname:
-            return f"'192.168.{random.randint(1,254)}.{random.randint(1,254)}'"
+            return f"'192.168.{random.randint(1, 254)}.{random.randint(1, 254)}'"
         gen_len = min(max_len, 10)
         val = ''.join(random.choices(string.ascii_letters + string.digits, k=gen_len))
         return f"'{val}'"
@@ -166,7 +166,7 @@ def _generate_value(col: Dict, idx: int, fk_values: Optional[List] = None) -> st
         return f"'{d.strftime('%Y-%m-%d %H:%M:%S')}'"
 
     elif dtype in ("time", "time without time zone"):
-        return f"'{random.randint(0,23):02d}:{random.randint(0,59):02d}:{random.randint(0,59):02d}'"
+        return f"'{random.randint(0, 23):02d}:{random.randint(0, 59):02d}:{random.randint(0, 59):02d}'"
 
     elif dtype in ("boolean", "bool", "bit"):
         return random.choice(["TRUE", "FALSE"])
@@ -229,7 +229,7 @@ def generate_mock_data(eng: Engine, database: str, table: str,
         "foreign_key_refs": {k: v for k, v in fk_map.items()},
         "notes": [
             "已自动跳过自增主键字段",
-            f"外键字段已引用目标表的真实数据" if fk_map else "无外键约束",
+            "外键字段已引用目标表的真实数据" if fk_map else "无外键约束",
             "请在执行前确认数据符合业务逻辑"
         ]
     }

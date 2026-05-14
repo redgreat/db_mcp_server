@@ -1,7 +1,6 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-from typing import Optional
 
 
 def get_logger(name: str, log_dir: str) -> logging.Logger:
@@ -19,4 +18,3 @@ def get_logger(name: str, log_dir: str) -> logging.Logger:
         stream.setFormatter(formatter)
         logger.addHandler(stream)
     return logger
-

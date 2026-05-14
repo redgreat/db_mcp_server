@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 class SystemLogger:
     """系统操作日志记录器"""
-    
+
     def __init__(self, engine: Engine):
         """
         Args:
@@ -19,7 +19,7 @@ class SystemLogger:
         self.engine = engine
         self.meta = MetaData()
         self.system_logs = Table("system_logs", self.meta, autoload_with=engine)
-    
+
     def log(
         self,
         operation: str,
@@ -31,7 +31,7 @@ class SystemLogger:
         client_ip: Optional[str] = None
     ):
         """记录系统操作日志
-        
+
         Args:
             operation: 操作类型（create_key/delete_key/assign_permission等）
             resource_type: 资源类型（access_key/permission/whitelist/connection）

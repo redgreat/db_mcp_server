@@ -1,6 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from typing import List, Dict, Any, Tuple
+from typing import Dict, Any
 
 
 def get_schema_detail(eng: Engine, database: str, db_type: str = "mysql") -> Dict[str, Any]:

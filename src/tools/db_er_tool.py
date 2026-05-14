@@ -3,7 +3,6 @@ from sqlalchemy.engine import Engine
 from typing import List, Dict, Any, Optional
 import re
 import time
-import base64
 import logging
 
 
@@ -123,7 +122,9 @@ def get_table_columns_for_er(eng: Engine, database: str, db_type: str = "mysql")
     return result
 
 
-def analyze_implicit_relationships(table_columns: Dict[str, List[Dict]], existing_fks: List[Dict]) -> List[Dict[str, str]]:
+def analyze_implicit_relationships(
+    table_columns: Dict[str, List[Dict]], existing_fks: List[Dict]
+) -> List[Dict[str, str]]:
     """分析命名约定推断隐含关系（如 user_id → users）"""
     all_tables = set(table_columns.keys())
     existing_pairs = {(fk["from_table"], fk["from_column"]) for fk in existing_fks}
@@ -188,11 +189,11 @@ def generate_er_mermaid(eng: Engine, database: str, db_type: str = "mysql",
                 if meta:
                     comment_parts.append(" ".join(meta))
                 if pk_mark and comment_parts:
-                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{ " | ".join(comment_parts) }"')
+                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{" | ".join(comment_parts)}"')
                 elif pk_mark:
                     lines.append(f'        {dtype} {col["column_name"]} {pk_mark}')
                 elif comment_parts:
-                    lines.append(f'        {dtype} {col["column_name"]} "{ " | ".join(comment_parts) }"')
+                    lines.append(f'        {dtype} {col["column_name"]} "{" | ".join(comment_parts)}"')
                 else:
                     lines.append(f'        {dtype} {col["column_name"]}')
             lines.append("    }")
@@ -220,7 +221,7 @@ def generate_er_mermaid(eng: Engine, database: str, db_type: str = "mysql",
 
 
 def generate_er_text_description(eng: Engine, database: str, db_type: str = "mysql",
-                                  include_implicit: bool = True) -> str:
+                                 include_implicit: bool = True) -> str:
     """生成实体关系的文字描述"""
     table_columns = get_table_columns_for_er(eng, database, db_type)
     fks = get_foreign_keys(eng, database, db_type)
@@ -256,6 +257,7 @@ def generate_er_text_description(eng: Engine, database: str, db_type: str = "mys
 
     return "\n".join(lines)
 
+
 def generate_er_mermaid_parts(
     eng: Engine,
     database: str,
@@ -266,7 +268,7 @@ def generate_er_mermaid_parts(
     max_chars: int = 500000
 ) -> List[str]:
     """生成按片段划分的 Mermaid erDiagram 代码
-    
+
     Args:
         eng: 数据库引擎
         database: 库名
@@ -275,18 +277,18 @@ def generate_er_mermaid_parts(
         include_implicit: 是否包含推断关系
         max_tables_per_part: 单片段最大表数量
         max_chars: 单片段最大字符数
-        
+
     Returns:
         Mermaid 文本片段列表
     """
     table_columns = get_table_columns_for_er(eng, database, db_type)
     fks = get_foreign_keys(eng, database, db_type)
     implicit_rels = analyze_implicit_relationships(table_columns, fks) if include_implicit else []
-    
+
     def safe_name(name: str) -> str:
         import re as _re
         return _re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    
+
     # 预先构建每个表的块内容
     table_blocks: List[str] = []
     for tname, cols in table_columns.items():
@@ -310,16 +312,16 @@ def generate_er_mermaid_parts(
                 if meta:
                     comment_parts.append(" ".join(meta))
                 if pk_mark and comment_parts:
-                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{ " | ".join(comment_parts) }"')
+                    lines.append(f'        {dtype} {col["column_name"]} {pk_mark} "{" | ".join(comment_parts)}"')
                 elif pk_mark:
                     lines.append(f'        {dtype} {col["column_name"]} {pk_mark}')
                 elif comment_parts:
-                    lines.append(f'        {dtype} {col["column_name"]} "{ " | ".join(comment_parts) }"')
+                    lines.append(f'        {dtype} {col["column_name"]} "{" | ".join(comment_parts)}"')
                 else:
                     lines.append(f'        {dtype} {col["column_name"]}')
         lines.append("    }")
         table_blocks.append("\n".join(lines))
-    
+
     # 外键关系块
     fk_blocks: List[str] = []
     for fk in fks:
@@ -327,41 +329,42 @@ def generate_er_mermaid_parts(
         to_t = safe_name(fk["to_table"])
         label = fk.get("constraint_name", f'{fk["from_column"]}')
         fk_blocks.append(f'    {to_t} ||--o{{ {from_t} : "{label}"')
-    
+
     # 推断关系块
     implicit_blocks: List[str] = []
     for rel in implicit_rels:
         from_t = safe_name(rel["from_table"])
         to_t = safe_name(rel["to_table"])
         implicit_blocks.append(f'    {to_t} ||--o{{ {from_t} : "{rel["from_column"]}(推断)"')
-    
+
     # 组装分片
     parts: List[str] = []
     current_lines: List[str] = ["erDiagram"]
     current_tables = 0
-    
+
     for block in table_blocks:
-        next_len = sum(len(l) for l in current_lines) + len(block)
+        next_len = sum(len(ln) for ln in current_lines) + len(block)
         if (max_tables_per_part and current_tables >= max_tables_per_part) or next_len > max_chars:
             parts.append("\n".join(current_lines))
             current_lines = ["erDiagram"]
             current_tables = 0
         current_lines.append(block)
         current_tables += 1
-    
+
     # 尝试添加外键与隐含关系
     rel_blocks = fk_blocks + implicit_blocks
     for block in rel_blocks:
-        next_len = sum(len(l) for l in current_lines) + len(block)
+        next_len = sum(len(ln) for ln in current_lines) + len(block)
         if next_len > max_chars:
             parts.append("\n".join(current_lines))
             current_lines = ["erDiagram"]
         current_lines.append(block)
-    
+
     if current_lines:
         parts.append("\n".join(current_lines))
-    
+
     return parts
+
 
 def save_er_mermaid_split(
     eng: Engine,
@@ -375,7 +378,7 @@ def save_er_mermaid_split(
     max_chars: int = 500000
 ) -> List[str]:
     """生成并保存分片 Mermaid 文档
-    
+
     Args:
         eng: 数据库引擎
         database: 库名
@@ -386,7 +389,7 @@ def save_er_mermaid_split(
         include_implicit: 是否包含推断关系
         max_tables_per_part: 单片段最大表数量
         max_chars: 单片段最大字符数
-        
+
     Returns:
         保存的文件路径列表
     """
@@ -407,6 +410,7 @@ def save_er_mermaid_split(
         saved.append(path)
     return saved
 
+
 def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
                          include_columns: bool = True,
                          include_implicit: bool = True,
@@ -415,15 +419,21 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     from fpdf import FPDF
     from .db_doc_tool import _find_cjk_font
     import os
-    
+
     logger = logging.getLogger(__name__)
-    
+
     # 生成内容
     mermaid_data = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
     text_desc = generate_er_text_description(eng, database, db_type, include_implicit)
-    
+
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_er_{database}_{timestamp}.pdf"
+
+    # 获取通用的下载目录
+    from pathlib import Path
+    downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    save_path = str(downloads_dir / filename)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -443,7 +453,7 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
         raise RuntimeError("未找到可用的中文字体，无法生成 PDF。")
 
     pdf.add_page()
-    
+
     def set_font(style="", size=10):
         if "B" in style.upper():
             pdf.set_font("CJKb", "", size + 1)
@@ -454,12 +464,12 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     set_font("B", 18)
     pdf.cell(0, 12, f"数据库 ER 关系报告 — {database}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
-    
+
     # 绘制文字描述部分
     for line in text_desc.split("\n"):
         stripped = line.strip()
         if stripped.startswith("# "):
-            continue # 已经画过大标题了
+            continue  # 已经画过大标题了
         elif stripped.startswith("## "):
             set_font("B", 14)
             pdf.ln(5)
@@ -477,31 +487,27 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     set_font("B", 14)
     pdf.cell(0, 10, "Mermaid ER 图源码 (可在支持 Mermaid 的编辑器中渲染)", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
-    
+
     pdf.set_fill_color(240, 240, 240)
     set_font("", 8)
     # 使用 multi_cell 绘制代码块，虽然不能直接画图，但提供了可保存的代码
     pdf.multi_cell(0, 5, mermaid_data["mermaid"], border=1, fill=True)
 
     pdf_bytes = pdf.output()
-    
-    saved_to = None
-    if save_path:
-        # 确保目录存在
-        save_dir = os.path.dirname(os.path.abspath(save_path))
-        if save_dir and not os.path.exists(save_dir):
-            os.makedirs(save_dir, exist_ok=True)
-        with open(save_path, 'wb') as f:
-            f.write(pdf_bytes)
-        saved_to = os.path.abspath(save_path)
-        logger.info(f"ER 图报告已保存到本地: {saved_to}")
 
-    pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
+    with open(save_path, 'wb') as f:
+        f.write(pdf_bytes)
+    saved_to = os.path.abspath(save_path)
+    logger.info(f"ER PDF 已保存到本地: {saved_to}")
 
+    download_url = f"/downloads/{filename}"
+
+    mermaid_src = mermaid_data["mermaid"]
+    mermaid_preview = mermaid_src[:2000] + "\n... (为节省空间已截断)" if len(mermaid_src) > 2000 else mermaid_src
     return {
-        "filename": filename,
-        "size_bytes": len(pdf_bytes),
-        "mermaid_code": mermaid_data["mermaid"],
-        "pdf_base64": pdf_base64,
-        "saved_to": saved_to
+        "success": True,
+        "format": "pdf",
+        "file_path": saved_to,
+        "download_url": download_url,
+        "mermaid_preview": mermaid_preview
     }

@@ -211,3 +211,4 @@ scripts/
 logs/
 config.yml
 doc
+*.DS_Store

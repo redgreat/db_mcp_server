@@ -1,8 +1,7 @@
 import os
 import yaml
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
-from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -28,6 +27,8 @@ class AdminDatabaseConfig:
     database: str
     username: str
     password: str
+    sslmode: str = "disable"
+    timezone: str = "Asia/Shanghai"
     pool_size: int = 10
     max_overflow: int = 20
 
@@ -78,26 +79,26 @@ class Config:
     @staticmethod
     def load(config_path: Optional[str] = None) -> "Config":
         """加载配置文件
-        
+
         Args:
             config_path: 配置文件路径，默认为 config/config.yml
-            
+
         Returns:
             Config实例
         """
         if config_path is None:
             config_path = os.getenv("CONFIG_PATH", "config/config.yml")
-        
+
         if not os.path.exists(config_path):
             raise FileNotFoundError(
                 f"配置文件不存在: {config_path}\n"
                 f"请复制 config/config.yml.example 到 config/config.yml 并修改配置"
             )
-        
+
         # 从YAML加载
         with open(config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        
+
         cfg = Config(
             server=ServerConfig(**data['server']),
             security=SecurityConfig(**data['security']),
@@ -109,9 +110,10 @@ class Config:
             cfg.object_storage = ObjectStorageConfig(**data['object_storage'])
         return cfg
 
-    
     def get_admin_db_url(self) -> str:
         """获取管理数据库连接URL"""
         db = self.admin_database
-        return f"postgresql+psycopg2://{db.username}:{db.password}@{db.host}:{db.port}/{db.database}"
-
+        url = f"postgresql+psycopg2://{db.username}:{db.password}@{db.host}:{db.port}/{db.database}"
+        if db.sslmode:
+            url += f"?sslmode={db.sslmode}"
+        return url
