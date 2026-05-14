@@ -20,10 +20,10 @@ graph TB
     subgraph Clients["客户端"]
         AI["AI 客户端 / IDE<br/>(TRAE, Cursor 等)"]
         HTTP["HTTP 客户端"]
-        WEB["Web 管理界面"]
+        WEB["Web 管理界面<br/>Svelte SPA（/login 等）"]
     end
 
-    subgraph Server["DB MCP Server — FastAPI"]
+    subgraph Server["DB MCP Server — FastAPI（单进程、同端口）"]
         direction TB
 
         subgraph Entry["入口层"]
@@ -80,7 +80,7 @@ graph TB
     AI -->|"SSE + JSON-RPC"| SSE
     AI -->|"POST"| MSG
     HTTP -->|"REST"| API
-    WEB -->|"REST"| ADMIN_API
+    WEB -->|"REST + 静态资源"| ADMIN_API
 
     SSE --> STD_PROTO
     MSG --> STD_PROTO
@@ -137,11 +137,20 @@ docker-compose ps
 docker-compose logs -f
 ```
 
-5. 访问管理界面
+5. 访问管理界面（Web）
 
-浏览器访问: http://localhost:3000/admin
+本地默认端口见 `config.yml` 的 `server.port`（示例为 **3000**）。管理界面为 **Svelte 单页应用**，与 MCP、管理 API **共用同一端口**，通过 **路径** 区分：
 
-### 手动部署
+| 场景 | 地址（本地示例） |
+|------|------------------|
+| 根路径 | `http://localhost:3000/` → **302** 跳转至 **`/login`**（未登录时地址栏即为登录页） |
+| 登录页 | `http://localhost:3000/login` |
+| 登录后主界面 | `http://localhost:3000/connections`（以及 `/keys`、`/audit` 等） |
+| 旧书签 `/admin` | `http://localhost:3000/admin` → **302** 跳转至 **`/connections`**（避免在 `/admin` 下挂载 SPA 导致客户端路由 Not found） |
+
+已保存登录态（本地 token）时访问 `/` 会先进入 `/login`，前端校验通过后自动进入 `/connections`。
+
+## 手动部署
 
 ```bash
 # 安装依赖
@@ -151,11 +160,28 @@ pip install -r requirements.txt
 cp config/config.yml.example config/config.yml
 # 编辑 config/config.yml，设置 master_key 和 PostgreSQL 管理库
 
-# 初始化管理数据库（PostgreSQL）
-python scripts/init_admin_db.py
+# 初始化管理数据库（PostgreSQL，在项目根目录执行）
+python src/init_admin_db.py
 
 # 启动服务
 uvicorn src.server:app --host 0.0.0.0 --port 3000
+```
+
+## 反向代理与 MCP（HTTPS · Caddy 等）
+
+- **对外**：建议只开放 **443**（及可选 **80** 跳转 HTTPS），由 **Caddy / Nginx** 等将 `https://你的域名` 反代到本机 `http://127.0.0.1:3000`（或容器内应用端口）。用户与 IDE **配置里写 `https://域名/...`，无需写 `:3000`**。
+- **Web 与 MCP 不拆端口**：浏览器访问后台与 IDE 连接 MCP，均为 **HTTPS + 不同路径**（如 `/login` 与 `/mcp/sse`），不会与根路径「抢路由」。
+- **Caddy 提示**：反代块中建议为 SSE 增加 **`flush_interval -1`**，减轻 `/mcp/sse` 长连接缓冲导致的事件延迟。
+
+示例（域名与上游请按实际修改）：
+
+```caddyfile
+db-mcp.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:3000 {
+        flush_interval -1
+    }
+}
 ```
 
 ## 配置说明（YAML）
@@ -201,25 +227,27 @@ logging:
 ## 目录结构
 
 ```
-zr_db_mcp_server/
+db_mcp_server/
 ├── config/              # 配置文件目录
-│   └── supervisord.conf # Supervisord 配置
-├── scripts/             # 脚本目录
+├── docker/              # Docker 内 supervisord 等
+├── frontend/            # Svelte 管理前端源码（构建产物输出到 src/static）
+├── script/              # 运维与辅助脚本
 ├── src/                 # 源代码目录
-│   ├── admin/           # 管理后台模块 (Web/API)
+│   ├── admin/           # 管理后台 API（web.py）
+│   ├── static/          # 前端构建输出与静态资源（npm run build 后生成）
 │   ├── db/              # 数据库操作模块
-│   ├── security/        # 安全部分（IP 白名单、加密、拦截器等）
+│   ├── security/        # 安全（IP 白名单、加密、拦截器等）
 │   ├── tools/           # 元数据与工具模块
 │   ├── mcp/             # MCP 协议与工具路由
 │   ├── config.py        # 配置加载（YAML）
 │   ├── server.py        # 服务主文件
 │   ├── logging_utils.py # 日志工具
-│   └── init_admin_db.py # 管理库初始化脚本（PostgreSQL）
-├── data/                # 数据目录（挂载卷）
+│   └── init_admin_db.py # 管理库初始化（PostgreSQL）
+├── data/                # 数据目录（可选挂载）
 ├── logs/                # 日志目录（挂载卷）
-├── Dockerfile           # Docker 镜像构建
-├── docker-compose.yml   # Docker Compose 配置
-└── requirements.txt     # Python 依赖
+├── Dockerfile
+├── docker-compose.yml
+└── requirements.txt
 ```
 
 ## 使用指南（连接级权限模型）
@@ -288,9 +316,13 @@ curl -N "http://localhost:3000/sse/query?connection_id=1&sql=SELECT%20COUNT(*)%2
   -H "x-access-key: api_key_001"
 ```
 
-### 8. 集成 TRAE（标准 MCP 协议）
+### 8. 集成 IDE / TRAE（标准 MCP 协议 · SSE）
 
-TRAE MCP 配置示例（Windows）：%APPDATA%/TRAE/mcp_config.json
+- **SSE 入口**：`GET /mcp/sse`，Header 携带 **`X-Access-Key`**（与后台「访问密钥」一致）。
+- **消息入口**：`POST /mcp/message`（JSON-RPC），同样需携带访问密钥（见 `src/mcp/standard_protocol.py`）。
+- 生产环境将示例中的 `http://localhost:3000` 换成 **`https://你的域名`**（经反代后**不要**在 URL 里写应用端口）。
+
+TRAE MCP 配置示例（Windows）：`%APPDATA%\TRAE\mcp_config.json`
 
 ```json
 {
@@ -306,7 +338,9 @@ TRAE MCP 配置示例（Windows）：%APPDATA%/TRAE/mcp_config.json
 }
 ```
 
-调用工具示例（JSON-RPC 请求到 http://localhost:3000/mcp/message）：
+Cursor 等 IDE：在 MCP 远程服务器配置中填写 **`https://<域名>/mcp/sse`**，并添加 Header **`X-Access-Key`**。具体 UI 以当前 IDE 版本为准。
+
+调用工具示例（JSON-RPC 请求到 `http://localhost:3000/mcp/message` 或生产环境同路径的 **https** 地址）：
 
 ```json
 {
@@ -348,7 +382,9 @@ TRAE MCP 配置示例（Windows）：%APPDATA%/TRAE/mcp_config.json
 - GET/POST/DELETE /admin/permissions
 - GET/POST/DELETE /admin/whitelist
 - GET /admin/audit/logs
-- GET /admin（Web 管理界面）
+- GET /admin、GET /admin/（**302** 至 `/connections`，兼容旧书签；SPA 入口为 `/login` 等）
+
+更多说明见仓库内 **`docs/IDE智能体与MCPServer配置指南.md`**。
 
 ## 安全特性
 
@@ -386,8 +422,8 @@ venv\Scripts\activate  # Windows
 # 安装依赖
 pip install -r requirements.txt
 
-# 初始化管理数据库
-python scripts/init_admin_db.py
+# 初始化管理数据库（在项目根目录执行）
+python src/init_admin_db.py
 
 # 启动开发服务器
 uvicorn src.server:app --reload --host 0.0.0.0 --port 3000

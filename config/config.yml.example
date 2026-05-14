@@ -1,4 +1,4 @@
-# zr_db_mcp_server 配置文件示例
+# db_mcp_server 配置文件示例
 # 使用方法：复制此文件为 config.yml 并修改相应配置
 
 # 服务配置

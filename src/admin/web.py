@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import create_engine, select, insert, update, delete
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -501,14 +501,17 @@ def build_admin_router(cfg: Config):
 
     # ==================== 首页 ====================
 
-    @router.get("/admin", response_class=HTMLResponse)
+    @router.get("/admin")
+    @router.get("/admin/")
     def admin_index():
-        """重定向到 SvelteKit 管理后台"""
+        """兼容书签 /admin：Svelte 应用路由在 /connections 等路径，不能在同一 URL 下挂载 index（会触发客户端 Not found）。"""
         static_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'index.html')
         if os.path.exists(static_path):
-            with open(static_path, 'r', encoding='utf-8') as f:
-                return HTMLResponse(content=f.read())
-        return HTMLResponse(content="<p>Frontend not built. Run: cd frontend && npm run build</p>", status_code=503)
+            return RedirectResponse(url="/connections", status_code=302)
+        return HTMLResponse(
+            content="<p>Frontend not built. Run: cd frontend && npm run build</p>",
+            status_code=503,
+        )
 
     # ==================== 访问密钥管理 ====================
 

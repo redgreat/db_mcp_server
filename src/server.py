@@ -27,8 +27,8 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def root_redirect():
-        """根路径重定向到管理界面"""
-        return RedirectResponse(url="/connections")
+        """根路径重定向到登录页（未登录与已登录均由前端处理：已登录在 /login 再跳进后台）"""
+        return RedirectResponse(url="/login")
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
@@ -348,7 +348,10 @@ def create_app() -> FastAPI:
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str, request: Request):
         """SvelteKit SPA 路由兜底"""
-        # API 路径直接报 404，不走 SPA
+        # 仅「/admin」无子路径时与后端管理入口一致，交给前端真实路由
+        if full_path == "admin" or full_path == "admin/":
+            return RedirectResponse(url="/connections", status_code=302)
+        # API 子路径不走 SPA
         if full_path.startswith("admin/") or full_path.startswith("mcp"):
             raise HTTPException(status_code=404)
         index_path = static_dir / "index.html"

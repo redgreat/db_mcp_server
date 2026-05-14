@@ -7,11 +7,23 @@
 	import { goto } from '$app/navigation';
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
+	import { onMount } from 'svelte';
 
 	let username = $state('');
 	let password = $state('');
 	let loading = $state(false);
 	let error = $state('');
+
+	onMount(async () => {
+		if (!authStore.token) return;
+		try {
+			const data = await api.get<{ user: import('$lib/stores/auth.svelte').User }>('/admin/me');
+			authStore.setUser(data.user);
+			goto('/connections');
+		} catch {
+			authStore.logout();
+		}
+	});
 
 	async function handleLogin(e: SubmitEvent) {
 		e.preventDefault();
