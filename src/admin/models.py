@@ -123,6 +123,21 @@ def ensure_schema(engine: Engine):
         Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="分配时间"),
     )
     
+    # 数据库规则文档表
+    db_rules = Table(
+        "db_rules", meta,
+        Column("id", Integer, primary_key=True, comment="规则ID"),
+        Column("connection_id", Integer, ForeignKey("db_connections.id"), nullable=False, index=True, comment="数据库连接ID"),
+        Column("database", String(255), nullable=False, index=True, comment="数据库名"),
+        Column("version", String(50), nullable=True, comment="规则版本"),
+        Column("title", String(255), nullable=True, comment="规则标题"),
+        Column("rule_md", Text, nullable=False, comment="规则 Markdown 内容"),
+        Column("tags", JSON, nullable=True, comment="标签"),
+        Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
+        Column("updated_at", DateTime(timezone=True), onupdate=func.now(), comment="最后更新时间"),
+        Column("active", Boolean, server_default="true", index=True, comment="是否生效"),
+    )
+    
     # 创建所有表
     meta.create_all(engine)
 

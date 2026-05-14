@@ -53,6 +53,19 @@ class LoggingConfig:
 
 
 @dataclass
+class ObjectStorageConfig:
+    provider: str
+    endpoint: Optional[str] = None
+    bucket: Optional[str] = None
+    access_key_id: Optional[str] = None
+    access_key_secret: Optional[str] = None
+    region: Optional[str] = None
+    path_prefix: Optional[str] = None
+    public_base_url: Optional[str] = None
+    enabled: bool = False
+
+
+@dataclass
 class Config:
     """应用配置"""
     server: ServerConfig
@@ -60,6 +73,7 @@ class Config:
     admin_database: AdminDatabaseConfig
     database: DatabaseConfig
     logging: LoggingConfig
+    object_storage: Optional[ObjectStorageConfig] = None
 
     @staticmethod
     def load(config_path: Optional[str] = None) -> "Config":
@@ -84,13 +98,16 @@ class Config:
         with open(config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
         
-        return Config(
+        cfg = Config(
             server=ServerConfig(**data['server']),
             security=SecurityConfig(**data['security']),
             admin_database=AdminDatabaseConfig(**data['admin_database']),
             database=DatabaseConfig(**data['database']),
             logging=LoggingConfig(**data['logging'])
         )
+        if 'object_storage' in data and data['object_storage']:
+            cfg.object_storage = ObjectStorageConfig(**data['object_storage'])
+        return cfg
 
     
     def get_admin_db_url(self) -> str:

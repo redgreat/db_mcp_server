@@ -41,3 +41,13 @@ logging:
   audit_to_database: true
   # 同时也写入文件（可选）
   audit_to_file: false
+
+object_storage:
+  enabled: false
+  provider: ali-oss
+  endpoint: oss-cn-hangzhou.aliyuncs.com
+  bucket: your-bucket-name
+  access_key_id: your-ak
+  access_key_secret: your-sk
+  path_prefix: reports/
+  public_base_url: https://your-bucket-name.oss-cn-hangzhou.aliyuncs.com/

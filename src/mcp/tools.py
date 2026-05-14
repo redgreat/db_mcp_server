@@ -228,7 +228,7 @@ MCP_TOOLS = [
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "pdf"],
-                    "description": "输出格式，默认 markdown。选择 pdf 时会生成包含图表源码的 PDF 文件"
+                    "description": "输出格式，默认 pdf。当选择 markdown 时返回包含 Mermaid 源码与说明的 Markdown 文件"
                 },
                 "save_path": {
                     "type": "string",
@@ -261,7 +261,7 @@ MCP_TOOLS = [
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "pdf"],
-                    "description": "输出格式，默认 markdown。选择 pdf 时会生成包含图表源码的 PDF 文件"
+                    "description": "输出格式，默认 pdf。当选择 markdown 时返回包含 Mermaid 源码与说明的 Markdown 文件"
                 },
                 "save_path": {
                     "type": "string",
@@ -456,6 +456,79 @@ MCP_TOOLS = [
                     "type": "integer",
                     "description": "数据库连接 ID"
                 }
+            },
+            "required": ["connection_id"]
+        }
+    ),
+    MCPTool(
+        name="render_report_oss",
+        description="根据字段映射与数据源生成报表（xlsx/csv），由服务端执行查询并上传到对象存储，返回下载地址。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {"type": "integer", "description": "数据库连接 ID"},
+                "database": {"type": "string", "description": "数据库名称（可选）"},
+                "file_name": {"type": "string", "description": "文件名（可选，不含扩展名）"},
+                "output_format": {
+                    "type": "string",
+                    "enum": ["xlsx", "csv"],
+                    "description": "输出格式，默认 xlsx"
+                },
+                "source": {
+                    "type": "object",
+                    "description": "数据源定义，包含表、联接、筛选、排序等",
+                    "properties": {
+                        "table": {"type": "string"},
+                        "joins": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string"},
+                                    "table": {"type": "string"},
+                                    "on": {"type": "string"}
+                                },
+                                "required": ["table", "on"]
+                            }
+                        },
+                        "where": {"type": "string"},
+                        "order_by": {"type": "string"},
+                        "limit": {"type": "integer"}
+                    },
+                    "required": ["table"]
+                },
+                "fields": {
+                    "type": "array",
+                    "description": "字段列表，expr/column 为数据源表达式，label 作为表头",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "expr": {"type": "string"},
+                            "column": {"type": "string"},
+                            "alias": {"type": "string"},
+                            "label": {"type": "string"},
+                            "width": {"type": "integer"}
+                        }
+                    }
+                }
+            },
+            "required": ["connection_id", "source", "fields"]
+        }
+    ),
+    MCPTool(
+        name="generate_db_rule",
+        description="生成数据库 RULE.md 规则文档，可保存到项目目录和/或管理数据库，作为报表生成上下文记忆。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {"type": "integer", "description": "数据库连接 ID"},
+                "database": {"type": "string", "description": "数据库名称（可选，默认连接库）"},
+                "save_to_project": {"type": "boolean", "description": "是否保存到项目 rules/<db>/RULE.md，默认 true"},
+                "save_to_admin": {"type": "boolean", "description": "是否保存到管理数据库 db_rules 表，默认 true"},
+                "project_base": {"type": "string", "description": "项目根路径（可选，默认当前工作目录）"},
+                "title": {"type": "string", "description": "规则标题（可选）"},
+                "version": {"type": "string", "description": "规则版本（可选）"},
+                "tags": {"type": "object", "description": "自定义标签（可选）"}
             },
             "required": ["connection_id"]
         }

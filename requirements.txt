@@ -11,4 +11,6 @@ pyyaml
 pyjwt
 bcrypt
 fpdf2
+openpyxl
+oss2
 

@@ -312,7 +312,7 @@ def _execute_tool(
             perm_checker.check_permission(access_key, connection_id)
             eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
             database = args.get("database") or db_name
-            fmt = args.get("format", "markdown")
+            fmt = args.get("format", "pdf")
             if fmt == "pdf":
                 from ..tools.db_doc_tool import export_db_doc_pdf
                 result = export_db_doc_pdf(eng, database, db_type)
@@ -327,25 +327,101 @@ def _execute_tool(
             database = args.get("database") or db_name
             include_columns = args.get("include_columns", True)
             include_implicit = args.get("include_implicit", True)
-            output_type = args.get("output_type", "both")
-            from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
-            result = {}
-            if output_type in ("mermaid", "both"):
-                result["mermaid_result"] = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
-            if output_type in ("text", "both"):
-                result["text_description"] = generate_er_text_description(eng, database, db_type, include_implicit)
+            fmt = args.get("format", "pdf")
+            import base64, time
+            from ..tools.object_storage import ObjectStorageClient
+            try:
+                if fmt == "pdf":
+                    from ..tools.db_er_tool import export_er_report_pdf
+                    pdf = export_er_report_pdf(eng, database, db_type, include_columns, include_implicit)
+                    data = base64.b64decode(pdf["pdf_base64"])
+                    filename = pdf["filename"]
+                    content_type = "application/pdf"
+                else:
+                    from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
+                    mer = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
+                    desc = generate_er_text_description(eng, database, db_type, include_implicit)
+                    md = f"# 数据库 ER 图 — {database}\n\n```mermaid\n{mer['mermaid']}\n```\n\n{desc}\n"
+                    data = md.encode("utf-8")
+                    ts = time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"db_er_{database}_{ts}.md"
+                    content_type = "text/markdown; charset=utf-8"
+            except Exception:
+                from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
+                mer = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
+                desc = generate_er_text_description(eng, database, db_type, include_implicit)
+                md = f"# 数据库 ER 图 — {database}\n\n```mermaid\n{mer['mermaid']}\n```\n\n{desc}\n"
+                data = md.encode("utf-8")
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"db_er_{database}_{ts}.md"
+                content_type = "text/markdown; charset=utf-8"
+            if cfg.object_storage and cfg.object_storage.enabled:
+                osc = ObjectStorageClient(
+                    provider=cfg.object_storage.provider,
+                    endpoint=cfg.object_storage.endpoint,
+                    bucket=cfg.object_storage.bucket,
+                    access_key_id=cfg.object_storage.access_key_id,
+                    access_key_secret=cfg.object_storage.access_key_secret,
+                    region=cfg.object_storage.region,
+                    public_base_url=cfg.object_storage.public_base_url,
+                    base_path=cfg.object_storage.path_prefix,
+                )
+            else:
+                import os as _os
+                osc = ObjectStorageClient(provider="local", endpoint=_os.path.join("uploads"))
+            key = f"er/{filename}"
+            url, obj_key = osc.upload_bytes(key, data, content_type=content_type)
+            result = {"url": url, "object_key": obj_key, "format": "pdf" if content_type == "application/pdf" else "markdown", "database": database}
 
         elif tool_name == "generate_data_flow":
             perm_checker.check_permission(access_key, connection_id)
             eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
             database = args.get("database") or db_name
-            output_type = args.get("output_type", "both")
-            from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description
-            result = {}
-            if output_type in ("mermaid", "both"):
-                result["mermaid_result"] = generate_dataflow_mermaid(eng, database, db_type)
-            if output_type in ("text", "both"):
-                result["text_description"] = generate_dataflow_description(eng, database, db_type)
+            fmt = args.get("format", "markdown")
+            import base64, time
+            from ..tools.object_storage import ObjectStorageClient
+            try:
+                if fmt == "pdf":
+                    from ..tools.db_dataflow_tool import export_dataflow_report_pdf
+                    pdf = export_dataflow_report_pdf(eng, database, db_type)
+                    data = base64.b64decode(pdf["pdf_base64"])
+                    filename = pdf["filename"]
+                    content_type = "application/pdf"
+                else:
+                    from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description
+                    mer = generate_dataflow_mermaid(eng, database, db_type)
+                    desc = generate_dataflow_description(eng, database, db_type)
+                    md = f"# 数据库数据流图 — {database}\n\n```mermaid\n{mer['mermaid']}\n```\n\n{desc}\n"
+                    data = md.encode("utf-8")
+                    ts = time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"db_dataflow_{database}_{ts}.md"
+                    content_type = "text/markdown; charset=utf-8"
+            except Exception:
+                from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description
+                mer = generate_dataflow_mermaid(eng, database, db_type)
+                desc = generate_dataflow_description(eng, database, db_type)
+                md = f"# 数据库数据流图 — {database}\n\n```mermaid\n{mer['mermaid']}\n```\n\n{desc}\n"
+                data = md.encode("utf-8")
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"db_dataflow_{database}_{ts}.md"
+                content_type = "text/markdown; charset=utf-8"
+            if cfg.object_storage and cfg.object_storage.enabled:
+                osc = ObjectStorageClient(
+                    provider=cfg.object_storage.provider,
+                    endpoint=cfg.object_storage.endpoint,
+                    bucket=cfg.object_storage.bucket,
+                    access_key_id=cfg.object_storage.access_key_id,
+                    access_key_secret=cfg.object_storage.access_key_secret,
+                    region=cfg.object_storage.region,
+                    public_base_url=cfg.object_storage.public_base_url,
+                    base_path=cfg.object_storage.path_prefix,
+                )
+            else:
+                import os as _os
+                osc = ObjectStorageClient(provider="local", endpoint=_os.path.join("uploads"))
+            key = f"dataflow/{filename}"
+            url, obj_key = osc.upload_bytes(key, data, content_type=content_type)
+            result = {"url": url, "object_key": obj_key, "format": "pdf" if content_type == "application/pdf" else "markdown", "database": database}
 
         elif tool_name == "suggest_columns":
             perm_checker.check_permission(access_key, connection_id)
@@ -425,6 +501,42 @@ def _execute_tool(
             eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
             from ..tools.db_config_tool import analyze_db_config
             result = analyze_db_config(eng, db_type)
+
+        elif tool_name == "generate_db_rule":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            save_to_project = args.get("save_to_project", True)
+            save_to_admin = args.get("save_to_admin", True)
+            project_base = args.get("project_base")
+            title = args.get("title")
+            version = args.get("version")
+            tags = args.get("tags") or {}
+            from ..tools.db_rule_tool import generate_and_save_rule
+            result = generate_and_save_rule(
+                eng=eng,
+                admin_engine=admin_engine,
+                database=database,
+                db_type=db_type,
+                connection_id=connection_id,
+                save_to_project=save_to_project,
+                save_to_admin=save_to_admin,
+                project_base=project_base,
+                title=title,
+                version=version,
+                tags=tags
+            )
+
+        elif tool_name == "render_report_oss":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            from ..tools.report_tool import generate_and_upload_report
+            result = generate_and_upload_report(
+                eng=eng,
+                access_key=access_key,
+                cfg=cfg,
+                args=args,
+            )
 
         else:
             raise Exception(f"未知工具: {tool_name}")
