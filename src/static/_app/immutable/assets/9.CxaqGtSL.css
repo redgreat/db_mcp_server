@@ -1,0 +1,1 @@
+.animate-shake{animation:.5s cubic-bezier(.36,.07,.19,.97) both svelte-1x05zx6-shake}@keyframes svelte-1x05zx6-shake{10%,90%{transform:translate(-1px)}20%,80%{transform:translate(2px)}30%,50%,70%{transform:translate(-4px)}40%,60%{transform:translate(4px)}}

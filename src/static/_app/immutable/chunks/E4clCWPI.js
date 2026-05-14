@@ -1,1 +1,0 @@
-import{B as e,H as t,O as n,V as r}from"./CraREQHG.js";var i=t(e([])),a=0;function o(e,t=`info`,o=3e3){let s=++a;r(i,[...n(i),{id:s,type:t,message:e}],!0),setTimeout(()=>{r(i,n(i).filter(e=>e.id!==s),!0)},o)}function s(){return n(i)}export{o as n,s as t};
