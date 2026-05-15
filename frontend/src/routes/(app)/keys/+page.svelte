@@ -305,8 +305,7 @@
 <div class="fade-in">
 	<div class="flex items-center justify-between mb-6">
 		<div>
-			<h1 class="text-xl font-bold">访问密钥</h1>
-			<p class="text-base-content/50 text-sm mt-0.5">管理 AI 访问数据库的密钥与权限</p>
+			<h1 class="text-2xl font-bold tracking-tight">访问密钥</h1>
 		</div>
 		{#if authStore.isAdmin}
 			<button class="btn btn-primary btn-sm gap-2" onclick={() => (showAddKeyModal = true)}>

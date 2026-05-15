@@ -10,65 +10,10 @@
   --animate-duration: 0.2s;
 }
 
-/*
- * 管理后台正文字号：与各页主标题 text-xl（1.25rem / 20px @16px 根字号）对齐。
- * 通过根布局 .app-shell-admin 包裹整站（含登录、Toast）。
- */
-.app-shell-admin .text-xs,
-.app-shell-admin .text-sm {
-  font-size: 1.25rem !important;
-  line-height: 1.75rem !important;
-}
-.app-shell-admin .text-base {
-  font-size: 1.25rem !important;
-  line-height: 1.75rem !important;
-}
-.app-shell-admin .table :where(th, td) {
-  font-size: 1.25rem;
-  line-height: 1.65rem;
-}
-.app-shell-admin .table-sm :where(th, td) {
-  padding-top: 0.65rem;
-  padding-bottom: 0.65rem;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-}
-.app-shell-admin .input-sm,
-.app-shell-admin .select-sm {
-  font-size: 1.2rem !important;
-  min-height: 3rem;
-  height: auto;
-}
-.app-shell-admin .btn-sm {
-  font-size: 1.15rem !important;
-  min-height: 2.75rem;
-  padding-left: 1rem;
-  padding-right: 1rem;
-}
-.app-shell-admin .btn-xs {
-  font-size: 1.1rem !important;
-  min-height: 2.4rem;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-}
-.app-shell-admin .badge-sm,
-.app-shell-admin .badge-xs {
-  font-size: 1.05rem !important;
-  height: auto;
-  min-height: 1.75rem;
-  padding: 0.25rem 0.55rem;
-}
-.app-shell-admin .label-text-alt {
-  font-size: 1.05rem !important;
-}
-.app-shell-admin .modal-box h3 {
-  font-size: 1.25rem !important;
-}
-.app-shell-admin .card .card-body h3.font-semibold {
-  font-size: 1.25rem;
-}
-.app-shell-admin code {
-  font-size: 1em !important;
+/* 管理后台根容器：不覆盖 Tailwind 字号，仅略调正文字阶 */
+.app-shell-admin {
+  font-size: 0.9375rem;
+  line-height: 1.55;
 }
 
 /* 平滑过渡 */

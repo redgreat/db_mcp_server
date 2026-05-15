@@ -6,7 +6,7 @@
 <script lang="ts">
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
-	import { dbTypeColor, formatDate } from '$lib/utils';
+	import { dbTypeColor } from '$lib/utils';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -30,9 +30,10 @@
 	const pageSize = 10;
 	let loading = $state(false);
 
-	let showAddModal = $state(false);
-	let addLoading = $state(false);
-	let addError = $state('');
+	let showConnModal = $state(false);
+	let editingConnId = $state<number | null>(null);
+	let saveLoading = $state(false);
+	let saveError = $state('');
 
 	let deleteId = $state<number | null>(null);
 	let deleteLoading = $state(false);
@@ -65,30 +66,67 @@
 		}
 	}
 
-	async function handleAdd(e: SubmitEvent) {
+	function openAddModal() {
+		editingConnId = null;
+		saveError = '';
+		resetForm();
+		showConnModal = true;
+	}
+
+	function openEditModal(conn: Connection) {
+		editingConnId = conn.id;
+		saveError = '';
+		form = {
+			name: conn.name,
+			host: conn.host,
+			port: String(conn.port),
+			db_type: conn.db_type,
+			database: conn.database,
+			username: conn.username,
+			password: '',
+			description: conn.description || ''
+		};
+		showConnModal = true;
+	}
+
+	function closeConnModal() {
+		showConnModal = false;
+		editingConnId = null;
+		saveError = '';
+		resetForm();
+	}
+
+	async function handleSaveConn(e: SubmitEvent) {
 		e.preventDefault();
-		addLoading = true;
-		addError = '';
-		const params = new URLSearchParams({
+		saveLoading = true;
+		saveError = '';
+		const base = {
 			name: form.name,
 			host: form.host,
 			port: form.port,
 			db_type: form.db_type,
 			database: form.database,
 			username: form.username,
-			password: form.password,
 			description: form.description
-		});
+		};
+		const reloadPage = editingConnId !== null ? page : 1;
 		try {
-			await api.post(`/admin/connections?${params}`);
-			showAddModal = false;
-			resetForm();
-			toast('数据库连接创建成功', 'success');
-			load(1);
+			if (editingConnId !== null) {
+				const params = new URLSearchParams(base);
+				if (form.password.trim()) params.set('password', form.password);
+				await api.put(`/admin/connections/${editingConnId}?${params}`);
+				toast('连接已更新', 'success');
+			} else {
+				const params = new URLSearchParams({ ...base, password: form.password });
+				await api.post(`/admin/connections?${params}`);
+				toast('数据库连接创建成功', 'success');
+			}
+			closeConnModal();
+			load(reloadPage);
 		} catch (err) {
-			addError = err instanceof ApiError ? err.message : '创建失败';
+			saveError = err instanceof ApiError ? err.message : editingConnId !== null ? '更新失败' : '创建失败';
 		} finally {
-			addLoading = false;
+			saveLoading = false;
 		}
 	}
 
@@ -122,11 +160,10 @@
 	<!-- 页头 -->
 	<div class="flex items-center justify-between mb-6">
 		<div>
-			<h1 class="text-xl font-bold">连接管理</h1>
-			<p class="text-base-content/50 text-sm mt-0.5">管理数据库连接配置</p>
+			<h1 class="text-2xl font-bold tracking-tight">连接管理</h1>
 		</div>
 		{#if authStore.isAdmin}
-			<button class="btn btn-primary btn-sm gap-2" onclick={() => (showAddModal = true)}>
+			<button class="btn btn-primary btn-sm gap-2" onclick={openAddModal}>
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15" />
 				</svg>
@@ -147,7 +184,7 @@
 			</svg>
 			<p class="text-sm">暂无连接配置</p>
 			{#if authStore.isAdmin}
-				<button class="btn btn-primary btn-sm mt-3" onclick={() => (showAddModal = true)}>添加第一个连接</button>
+				<button class="btn btn-primary btn-sm mt-3" onclick={openAddModal}>添加第一个连接</button>
 			{/if}
 		</div>
 	{:else}
@@ -157,8 +194,8 @@
 					<div class="card-body p-4">
 						<div class="flex items-start justify-between mb-2">
 							<div class="flex-1 min-w-0">
-								<h3 class="font-semibold truncate">{conn.name}</h3>
-								<p class="text-base-content/50 text-xs mt-0.5 truncate">
+								<h3 class="text-base font-semibold tracking-tight truncate">{conn.name}</h3>
+								<p class="text-xs text-base-content/55 mt-0.5 truncate font-mono">
 									{conn.host}:{conn.port} / <code class="text-xs">{conn.database}</code>
 								</p>
 							</div>
@@ -167,7 +204,7 @@
 							</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-xs text-base-content/50">
+						<div class="flex items-center gap-2 text-xs text-base-content/55">
 							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
 							</svg>
@@ -177,11 +214,21 @@
 						</div>
 
 						{#if conn.description}
-							<p class="text-xs text-base-content/40 mt-1 truncate">{conn.description}</p>
+							<p class="text-xs text-base-content/45 mt-1 line-clamp-2">{conn.description}</p>
 						{/if}
 
 						{#if authStore.isAdmin}
-							<div class="card-actions justify-end mt-3 pt-3 border-t border-base-300">
+							<div class="card-actions justify-end gap-1 mt-3 pt-3 border-t border-base-300">
+								<button
+									type="button"
+									class="btn btn-ghost btn-xs gap-1"
+									onclick={() => openEditModal(conn)}
+								>
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+									</svg>
+									编辑
+								</button>
 								<button
 									class="btn btn-error btn-xs btn-outline gap-1"
 									onclick={() => (deleteId = conn.id)}
@@ -201,12 +248,14 @@
 	{/if}
 </div>
 
-<!-- 添加连接 Modal -->
-{#if showAddModal}
+<!-- 添加 / 编辑连接 Modal -->
+{#if showConnModal}
 	<div class="modal modal-open">
 		<div class="modal-box max-w-md">
-			<h3 class="font-bold text-base mb-4">添加数据库连接</h3>
-			<form onsubmit={handleAdd}>
+			<h3 class="font-bold text-lg mb-4 tracking-tight">
+				{editingConnId !== null ? '编辑数据库连接' : '添加数据库连接'}
+			</h3>
+			<form onsubmit={handleSaveConn}>
 				<div class="grid grid-cols-2 gap-3">
 					<div class="form-control col-span-2">
 						<label class="label pb-1 text-sm" for="conn-name">名称</label>
@@ -244,7 +293,9 @@
 					<div class="form-control">
 						<label class="label pb-1 text-sm" for="conn-pwd">密码</label>
 						<input id="conn-pwd" type="password" class="input input-bordered input-sm"
-							bind:value={form.password} required />
+							bind:value={form.password}
+							required={editingConnId === null}
+							placeholder={editingConnId !== null ? '留空表示不修改密码' : ''} />
 					</div>
 					<div class="form-control col-span-2">
 						<label class="label pb-1 text-sm" for="conn-desc">描述（可选）</label>
@@ -252,22 +303,21 @@
 							placeholder="连接用途说明" bind:value={form.description} />
 					</div>
 				</div>
-				{#if addError}
-					<div class="alert alert-error py-2 px-3 mt-3 text-sm"><span>{addError}</span></div>
+				{#if saveError}
+					<div class="alert alert-error py-2 px-3 mt-3 text-sm"><span>{saveError}</span></div>
 				{/if}
 				<div class="modal-action mt-4">
-					<button type="button" class="btn btn-ghost btn-sm"
-						onclick={() => { showAddModal = false; addError = ''; resetForm(); }}>
+					<button type="button" class="btn btn-ghost btn-sm" onclick={closeConnModal}>
 						取消
 					</button>
-					<button type="submit" class="btn btn-primary btn-sm" disabled={addLoading}>
-						{#if addLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
-						创建连接
+					<button type="submit" class="btn btn-primary btn-sm" disabled={saveLoading}>
+						{#if saveLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
+						{editingConnId !== null ? '保存' : '创建连接'}
 					</button>
 				</div>
 			</form>
 		</div>
-		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (showAddModal = false)}></button>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={closeConnModal}></button>
 	</div>
 {/if}
 

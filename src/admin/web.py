@@ -850,6 +850,57 @@ def build_admin_router(cfg: Config):
         logger.info(f"创建连接: {name} by {user_data['username']}")
         return {"ok": True}
 
+    @router.put("/admin/connections/{conn_id}")
+    def update_connection(
+        conn_id: int,
+        name: str,
+        host: str,
+        port: int,
+        db_type: str,
+        database: str,
+        username: str,
+        password: Optional[str] = None,
+        description: Optional[str] = "",
+        authorization: str = Header(None)
+    ):
+        """更新数据库连接（仅管理员）；password 不传或为空则保留原密码"""
+        user_data = auth_service.require_admin(authorization)
+
+        from sqlalchemy import Table, MetaData
+        meta = MetaData()
+        t = Table("db_connections", meta, autoload_with=engine)
+        with Session(engine) as s:
+            row = s.execute(select(t).where(t.c.id == conn_id)).mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail="连接不存在")
+
+            vals = {
+                "name": name,
+                "host": host,
+                "port": port,
+                "db_type": db_type,
+                "database": database,
+                "username": username,
+                "description": description or "",
+            }
+            if password:
+                vals["password_enc"] = encrypt_text(password, cfg.security.master_key)
+
+            s.execute(update(t).where(t.c.id == conn_id).values(**vals))
+            s.commit()
+
+        system_logger.log(
+            operation="update_connection",
+            resource_type="connection",
+            user_id=user_data["user_id"],
+            username=user_data["username"],
+            resource_id=conn_id,
+            details={"name": name, "host": host, "port": port, "db_type": db_type},
+        )
+
+        logger.info(f"更新连接 id={conn_id}: {name} by {user_data['username']}")
+        return {"ok": True}
+
     @router.delete("/admin/connections/{conn_id}")
     def delete_connection(conn_id: int, authorization: str = Header(None)):
         """删除数据库连接（仅管理员）"""

@@ -161,8 +161,7 @@
 <div class="fade-in">
 	<div class="flex items-center justify-between mb-6">
 		<div>
-			<h1 class="text-xl font-bold">用户管理</h1>
-			<p class="text-base-content/50 text-sm mt-0.5">管理系统用户账号与权限</p>
+			<h1 class="text-2xl font-bold tracking-tight">用户管理</h1>
 		</div>
 		<button class="btn btn-primary btn-sm gap-2" onclick={() => (showCreateModal = true)}>
 			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

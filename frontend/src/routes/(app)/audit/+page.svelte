@@ -104,8 +104,7 @@
 
 <div class="fade-in">
 	<div class="mb-6">
-		<h1 class="text-xl font-bold">审计日志</h1>
-		<p class="text-base-content/50 text-sm mt-0.5">查看数据库访问记录和系统操作日志</p>
+		<h1 class="text-2xl font-bold tracking-tight">审计日志</h1>
 	</div>
 
 	<!-- Tab 切换 -->
