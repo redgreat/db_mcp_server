@@ -108,7 +108,7 @@
 	</div>
 
 	<!-- Tab 切换 -->
-	<div class="tabs tabs-boxed bg-base-200 w-fit mb-5">
+	<div class="tabs tabs-boxed admin-tabs bg-base-200 w-fit mb-5">
 		<button
 			class="tab {activeTab === 'audit' ? 'tab-active' : ''}"
 			onclick={() => switchTab('audit')}

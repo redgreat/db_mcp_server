@@ -15,8 +15,8 @@
 </script>
 
 {#if total > pageSize}
-	<div class="flex items-center justify-between gap-4 mt-4 flex-wrap">
-		<p class="text-sm text-base-content/60">
+	<div class="admin-pagination-meta flex items-center justify-between gap-4 mt-4 flex-wrap">
+		<p class="text-base-content/60">
 			共 <span class="font-medium text-base-content">{total}</span> 条，第
 			<span class="font-medium text-base-content">{page}</span> /
 			{totalPages} 页

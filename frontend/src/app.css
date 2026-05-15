@@ -10,10 +10,90 @@
   --animate-duration: 0.2s;
 }
 
-/* 管理后台根容器：不覆盖 Tailwind 字号，仅略调正文字阶 */
+/*
+ * 管理后台正文字阶（参考常见 WMS 列表：侧栏约 15px、表体约 14–15px、表头略小一级）
+ * 仅作用于 .app-shell-admin 内，避免把登录页等拉得过大。
+ */
 .app-shell-admin {
-  font-size: 0.9375rem;
+  font-size: 1rem;
   line-height: 1.55;
+}
+
+/* 侧栏：菜单与品牌区略大于默认 text-sm */
+.app-shell-admin .admin-sidebar .admin-sidebar-brand-title {
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+.app-shell-admin .admin-sidebar .admin-sidebar-brand-sub {
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+.app-shell-admin .admin-sidebar nav a.admin-sidebar-link {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+.app-shell-admin .admin-sidebar .admin-sidebar-user-name {
+  font-size: 0.9375rem;
+}
+.app-shell-admin .admin-sidebar .admin-sidebar-user-role {
+  font-size: 0.8125rem;
+}
+
+/* 主区列表页：表格（覆盖单元格上的 text-xs / text-sm，保持层次：表头 < 表体） */
+.app-shell-admin main .table thead :where(th) {
+  font-size: 0.8125rem !important;
+  line-height: 1.35rem !important;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.app-shell-admin main .table tbody :where(td) {
+  font-size: 0.9375rem !important;
+  line-height: 1.45rem !important;
+}
+.app-shell-admin main .table tbody :where(td) :where(code) {
+  font-size: inherit !important;
+}
+.app-shell-admin main .table.table-sm :where(th, td) {
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+  padding-left: 0.875rem !important;
+  padding-right: 0.875rem !important;
+}
+
+/* 主区 Tab、筛选控件与按钮：与表体对齐，易点易读 */
+.app-shell-admin main .admin-tabs :where(.tab) {
+  font-size: 0.9375rem;
+  min-height: 2.75rem;
+  padding-left: 1.125rem;
+  padding-right: 1.125rem;
+}
+.app-shell-admin main .input-sm,
+.app-shell-admin main .select-sm {
+  font-size: 0.9375rem !important;
+  min-height: 2.5rem;
+}
+.app-shell-admin main .btn-sm {
+  font-size: 0.9375rem !important;
+  min-height: 2.5rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+/* 列表页主标题：略大于 text-2xl，接近参考里的「大标题」 */
+.app-shell-admin main h1 {
+  font-size: clamp(1.625rem, 1.45rem + 0.6vw, 1.875rem) !important;
+  line-height: 2.25rem !important;
+  letter-spacing: -0.02em;
+}
+
+/* 分页条：辅助信息略小于表体但仍清晰 */
+.app-shell-admin main .admin-pagination-meta {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.app-shell-admin main .admin-pagination-meta .join .btn {
+  font-size: 0.875rem;
+  min-height: 2.375rem;
 }
 
 /* 平滑过渡 */

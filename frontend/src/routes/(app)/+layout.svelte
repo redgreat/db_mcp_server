@@ -113,34 +113,34 @@
 	<!-- 侧边栏 -->
 	<div class="drawer-side z-40">
 		<label for="sidebar-drawer" class="drawer-overlay"></label>
-		<aside class="w-72 min-h-screen bg-base-200 border-r border-base-300 flex flex-col">
+		<aside class="admin-sidebar w-72 min-h-screen bg-base-200 border-r border-base-300 flex flex-col">
 			<!-- Logo -->
 			<div class="p-4 border-b border-base-300">
 				<div class="flex items-center gap-3">
-					<div class="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+					<div class="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
 						<svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
 								d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
 						</svg>
 					</div>
 					<div>
-						<div class="font-bold text-sm leading-tight">DB MCP Server</div>
-						<div class="text-xs text-base-content/40">管理后台</div>
+						<div class="admin-sidebar-brand-title font-bold leading-tight">DB MCP Server</div>
+						<div class="admin-sidebar-brand-sub text-base-content/45">管理后台</div>
 					</div>
 				</div>
 			</div>
 
 			<!-- 导航菜单 -->
-			<nav class="flex-1 p-3 space-y-0.5">
+			<nav class="flex-1 p-3 space-y-1">
 				{#each navItems as item}
 					<a
 						href={item.path}
-						class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative
+						class="admin-sidebar-link flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-all relative
 							{isActive(item.path)
 							? 'bg-primary/10 text-primary sidebar-active'
 							: 'text-base-content/60 hover:text-base-content hover:bg-base-300'}"
 					>
-						<svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-5 h-5 flex-shrink-0 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							{@html item.icon}
 						</svg>
 						{item.label}
@@ -151,28 +151,28 @@
 			<!-- 底部用户信息 -->
 			<div class="p-3 border-t border-base-300">
 				{#if authStore.user}
-					<div class="flex items-center gap-2 px-2 py-1.5 rounded-lg">
+					<div class="flex items-center gap-2 px-2 py-2 rounded-lg">
 						<div class="avatar placeholder">
-							<div class="w-7 h-7 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center">
+							<div class="w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold flex items-center justify-center">
 								{authStore.user.username[0].toUpperCase()}
 							</div>
 						</div>
 						<div class="flex-1 min-w-0">
-							<div class="text-sm font-medium truncate">{authStore.user.username}</div>
-							<div class="text-xs text-base-content/40">
+							<div class="admin-sidebar-user-name font-medium truncate">{authStore.user.username}</div>
+							<div class="admin-sidebar-user-role text-base-content/45">
 								{authStore.user.role === 'admin' ? '管理员' : '普通用户'}
 							</div>
 						</div>
 					</div>
 					<div class="flex gap-1 mt-2">
 						<button
-							class="btn btn-ghost btn-xs flex-1"
+							class="btn btn-ghost btn-sm flex-1 min-h-10 text-sm"
 							onclick={() => (showChangePwd = true)}
 						>
 							修改密码
 						</button>
 						<button
-							class="btn btn-ghost btn-xs flex-1 text-error hover:bg-error/10"
+							class="btn btn-ghost btn-sm flex-1 min-h-10 text-sm text-error hover:bg-error/10"
 							onclick={() => (showLogoutConfirm = true)}
 						>
 							退出
