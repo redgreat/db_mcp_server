@@ -113,7 +113,7 @@
 	<!-- 侧边栏 -->
 	<div class="drawer-side z-40">
 		<label for="sidebar-drawer" class="drawer-overlay"></label>
-		<aside class="w-60 min-h-screen bg-base-200 border-r border-base-300 flex flex-col">
+		<aside class="w-72 min-h-screen bg-base-200 border-r border-base-300 flex flex-col">
 			<!-- Logo -->
 			<div class="p-4 border-b border-base-300">
 				<div class="flex items-center gap-3">
@@ -140,7 +140,7 @@
 							? 'bg-primary/10 text-primary sidebar-active'
 							: 'text-base-content/60 hover:text-base-content hover:bg-base-300'}"
 					>
-						<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							{@html item.icon}
 						</svg>
 						{item.label}

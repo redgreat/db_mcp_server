@@ -30,5 +30,7 @@ jobs:
           tags: |
             registry.cn-hangzhou.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACE }}/${{ secrets.DOCKER_IMAGE_NAME }}:${{ github.ref_name }}
             registry.cn-hangzhou.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACE }}/${{ secrets.DOCKER_IMAGE_NAME }}:latest
+          # 缓解 npm 官方源在 CI 上偶发 ECONNRESET（默认 npmmirror；需官方源可改为 https://registry.npmjs.org）
+          build-args: NPM_REGISTRY=https://registry.npmmirror.com
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -107,7 +107,7 @@
 	<!-- 顶部标题区 -->
 	<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-base-100 p-6 rounded-2xl shadow-sm border border-base-200">
 		<div>
-			<h1 class="text-2xl font-bold tracking-tight">大模型 AI 配置</h1>
+			<h1 class="text-xl font-bold tracking-tight">大模型 AI 配置</h1>
 			<p class="text-base-content/60 mt-1 text-sm">
 				配置系统使用的大语言模型，用于分析慢查询、提供字段建议及生成文档摘要。激活唯一的一个提供商即可生效。
 			</p>

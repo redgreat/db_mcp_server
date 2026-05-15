@@ -1,10 +1,21 @@
+# syntax=docker/dockerfile:1
 # 阶段一：前端构建
 FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+# 国内 CI/构建机若遇 npm 官方源 ECONNRESET，可传: --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+ARG NPM_REGISTRY=
+RUN npm config set fetch-retries 10 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-timeout 600000 && \
+    if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi
+
 COPY frontend/package*.json ./
-RUN npm ci
+# 缓存 + 多次重试，缓解跨区/不稳定网络下 npm ci 中断
+RUN --mount=type=cache,target=/root/.npm \
+    sh -ec 'for n in 1 2 3 4 5; do npm ci && exit 0; echo "npm ci failed, retry $n in 15s..."; sleep 15; done; exit 1'
 
 COPY frontend/ ./
 RUN npm run build

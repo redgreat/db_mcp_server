@@ -9,5 +9,7 @@
 	<title>DB MCP Server 管理后台</title>
 </svelte:head>
 
-{@render children()}
-<Toast />
+<div class="app-shell-admin min-h-screen">
+	{@render children()}
+	<Toast />
+</div>

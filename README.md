@@ -431,6 +431,9 @@ uvicorn src.server:app --reload --host 0.0.0.0 --port 3000
 
 ## 故障排查
 
+- **Docker 构建阶段 `npm ci` 报 ECONNRESET / network**：多为拉取 npm 包时网络不稳定。Dockerfile 已加大重试与缓存；本地可显式指定镜像：  
+  `docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t db-mcp .`  
+  需严格走官方源时用 `--build-arg NPM_REGISTRY=https://registry.npmjs.org`（并依赖网络稳定）。
 - 缺少访问密钥：检查请求 Header x-access-key
 - 风险 SQL 拦截：检查语句是否包含危险操作或注入模式
 - 权限不足：检查 select_only/allow_ddl 授权是否满足

@@ -71,7 +71,7 @@
 						</svg>
 					</div>
 				</div>
-				<h1 class="text-2xl font-black tracking-tight text-base-content bg-clip-text">DB MCP Server</h1>
+				<h1 class="text-xl font-black tracking-tight text-base-content bg-clip-text">DB MCP Server</h1>
 				<p class="text-base-content/60 text-sm mt-2 font-medium">企业数据库安全访问管理平台</p>
 			</div>
 
@@ -134,8 +134,8 @@
 				</div>
 			</form>
 
-			<div class="divider text-[10px] uppercase tracking-widest opacity-30 mt-8 mb-4">Security Access Control</div>
-			<p class="text-center text-[11px] text-base-content/40 leading-relaxed font-medium">
+			<div class="divider text-xs uppercase tracking-widest opacity-30 mt-8 mb-4">Security Access Control</div>
+			<p class="text-center text-sm text-base-content/40 leading-relaxed font-medium">
 				所有连接均经过 AES-256 加密存储<br/>
 				操作日志将实时记录至审计系统
 			</p>
