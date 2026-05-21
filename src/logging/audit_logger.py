@@ -1,8 +1,8 @@
 """
 审计日志服务
 """
-from datetime import datetime
 from typing import Optional, Dict, Any
+from ..timezone_util import now_app
 from sqlalchemy import Table, MetaData, insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -51,7 +51,7 @@ class AuditLogger:
             with Session(self.engine) as session:
                 session.execute(
                     insert(self.audit_logs).values(
-                        timestamp=datetime.utcnow(),
+                        timestamp=now_app(),
                         access_key=access_key,
                         client_ip=client_ip,
                         connection_id=connection_id,

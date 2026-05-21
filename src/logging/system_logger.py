@@ -1,8 +1,8 @@
 """
 系统操作日志服务
 """
-from datetime import datetime
 from typing import Optional, Dict, Any
+from ..timezone_util import now_app
 from sqlalchemy import Table, MetaData, insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ class SystemLogger:
             with Session(self.engine) as session:
                 session.execute(
                     insert(self.system_logs).values(
-                        timestamp=datetime.utcnow(),
+                        timestamp=now_app(),
                         user_id=user_id,
                         username=username,
                         operation=operation,

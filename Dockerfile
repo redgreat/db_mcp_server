@@ -51,6 +51,7 @@ RUN mkdir -p /var/log/db_mcp_server /data/admin && \
 USER dbmcp
 
 # 环境变量
+ENV TZ=Asia/Shanghai
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV LOG_DIR=/var/log/db_mcp_server

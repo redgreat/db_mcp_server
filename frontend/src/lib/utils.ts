@@ -2,7 +2,9 @@
 export function formatDate(iso: string | null | undefined): string {
 	if (!iso) return '—';
 	const d = new Date(iso);
-	return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('zh-CN');
+	return Number.isNaN(d.getTime())
+		? String(iso)
+		: d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 }
 
 /** 截断过长文本 */

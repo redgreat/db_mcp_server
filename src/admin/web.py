@@ -11,6 +11,7 @@ from .models import ensure_schema
 from .auth import AuthService
 from ..security.secret import encrypt_text
 from ..security.ip_whitelist import IPWhitelistChecker
+from ..timezone_util import serialize_row
 
 
 # 请求模型
@@ -207,7 +208,7 @@ def build_admin_router(cfg: Config):
         # 不返回密码哈希
         users = []
         for r in rows:
-            user_dict = dict(r)
+            user_dict = serialize_row(r)
             user_dict.pop("password_hash", None)
             users.append(user_dict)
 
@@ -435,7 +436,7 @@ def build_admin_router(cfg: Config):
 
             items = []
             for r in rows:
-                item = dict(r)
+                item = serialize_row(r)
                 # 不返回真实的 API Key，而是返回是否有设置
                 has_key = bool(item.get("api_key_enc"))
                 item["has_api_key"] = has_key
@@ -559,7 +560,7 @@ def build_admin_router(cfg: Config):
                 ).mappings().all()
 
         return {
-            "items": [dict(r) for r in rows],
+            "items": [serialize_row(r) for r in rows],
             "total": total,
             "page": page,
             "page_size": page_size
@@ -682,7 +683,7 @@ def build_admin_router(cfg: Config):
             )
             rows = s.execute(query).mappings().all()
 
-        return {"users": [dict(r) for r in rows]}
+        return {"users": [serialize_row(r) for r in rows]}
 
     @router.post("/admin/keys/{key_id}/users")
     async def assign_users_to_key(
@@ -793,7 +794,7 @@ def build_admin_router(cfg: Config):
         # 密码脱敏
         masked = []
         for r in rows:
-            d = dict(r)
+            d = serialize_row(r)
             d["password_enc"] = "***"
             masked.append(d)
 
@@ -1031,7 +1032,7 @@ def build_admin_router(cfg: Config):
                 )
                 rows = s.execute(query).mappings().all()
 
-        return {"items": [dict(r) for r in rows]}
+        return {"items": [serialize_row(r) for r in rows]}
 
     @router.post("/admin/permissions")
     def create_permission(
@@ -1138,7 +1139,7 @@ def build_admin_router(cfg: Config):
                     query = query.where(whitelist.c.key_id == key_id)
 
                 rows = s.execute(query).mappings().all()
-                rules = [dict(r) for r in rows]
+                rules = [serialize_row(r) for r in rows]
 
         return {"items": rules}
 
@@ -1243,7 +1244,7 @@ def build_admin_router(cfg: Config):
             rows = s.execute(query).mappings().all()
 
         return {
-            "items": [dict(r) for r in rows],
+            "items": [serialize_row(r) for r in rows],
             "total": total,
             "page": page,
             "page_size": page_size
@@ -1295,7 +1296,7 @@ def build_admin_router(cfg: Config):
             rows = s.execute(query).mappings().all()
 
         return {
-            "items": [dict(r) for r in rows],
+            "items": [serialize_row(r) for r in rows],
             "total": total,
             "page": page,
             "page_size": page_size

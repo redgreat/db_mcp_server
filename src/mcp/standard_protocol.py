@@ -253,6 +253,22 @@ async def handle_mcp_request(
         # Cursor 等客户端通过 SSE 周期性发送 ping 保活，非错误
         return {}
 
+    elif method == "resources/list":
+        return {"resources": []}
+
+    elif method == "resources/templates/list":
+        return {"resourceTemplates": []}
+
+    elif method == "prompts/list":
+        return {"prompts": []}
+
+    elif method == "roots/list":
+        return {"roots": []}
+
+    elif method.startswith("notifications/"):
+        logger.debug("MCP notification: %s", method)
+        return None
+
     elif method == "tools/list":
         from .tools import get_tool_definitions
         return {
