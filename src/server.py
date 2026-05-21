@@ -12,6 +12,7 @@ from .security.secret import decrypt_text
 from .logging.audit_logger import AuditLogger
 from .security.ip_whitelist import IPWhitelistChecker
 from .security.data_masker import DataMasker
+from .security.client_ip import get_real_client_ip
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -110,7 +111,7 @@ def create_app() -> FastAPI:
               request: Request, x_access_key: str = Header(default="")):
         """执行查询代理操作"""
         start_time = time.time()
-        client_ip = request.client.host if request.client else None
+        client_ip = get_real_client_ip(request)
 
         try:
             if not x_access_key:
@@ -206,7 +207,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
         eng, _, _ = _resolve_engine(cfg, qp, connection_id)
 
-        client_ip = request.client.host if request.client else None
+        client_ip = get_real_client_ip(request)
 
         def event_stream():
             """生成SSE数据流"""
@@ -253,7 +254,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
 
         start_time = time.time()
-        client_ip = request.client.host if request.client else None
+        client_ip = get_real_client_ip(request)
 
         _check_permission(cfg, x_access_key, connection_id)
         eng, db_name, db_type = _resolve_engine(cfg, qp, connection_id)
@@ -280,7 +281,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
 
         start_time = time.time()
-        client_ip = request.client.host if request.client else None
+        client_ip = get_real_client_ip(request)
 
         _check_permission(cfg, x_access_key, connection_id)
         eng, db_name, db_type = _resolve_engine(cfg, qp, connection_id)

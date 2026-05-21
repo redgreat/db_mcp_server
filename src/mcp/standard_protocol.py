@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, Union
+from ..security.client_ip import get_real_client_ip
 import json
 import asyncio
 import logging
@@ -152,7 +153,7 @@ def build_standard_mcp_router(
         if not x_access_key:
             raise HTTPException(status_code=401, detail="缺少访问密钥")
 
-        client_ip = request.client.host if request.client else None
+        client_ip = get_real_client_ip(request)
 
         # IP 白名单检查
         if client_ip and not ip_checker.check_access(client_ip, x_access_key):

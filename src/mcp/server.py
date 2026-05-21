@@ -11,6 +11,7 @@ from ..tools.db_metadata_tool import list_databases, list_tables, list_views, li
 from ..security.interceptor import intercept_sql
 from ..security.ip_whitelist import IPWhitelistChecker
 from ..security.data_masker import DataMasker
+from ..security.client_ip import get_real_client_ip
 from ..logging.audit_logger import AuditLogger
 from ..config import Config
 from ..security.secret import decrypt_text
@@ -68,7 +69,7 @@ def build_mcp_router(
     ):
         """调用MCP工具"""
         start_time = time.time()
-        client_ip = request.client.host if request.client else None
+        client_ip = get_real_client_ip(request)
 
         try:
             if not x_access_key:
