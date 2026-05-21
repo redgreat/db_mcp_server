@@ -6,7 +6,7 @@
 <script lang="ts">
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
-	import { dbTypeColor } from '$lib/utils';
+	import { dbTypeColor, formatDate, truncate } from '$lib/utils';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -35,7 +35,24 @@
 	let saveLoading = $state(false);
 	let saveError = $state('');
 
-	let deleteId = $state<number | null>(null);
+	interface DeletePreview {
+		connection: {
+			id: number;
+			name: string;
+			host: string;
+			port: number;
+			db_type: string;
+			database: string;
+			username: string;
+		};
+		permission_count: number;
+		db_rule_count: number;
+		audit_log_count: number;
+	}
+
+	let deleteTarget = $state<Connection | null>(null);
+	let deletePreview = $state<DeletePreview | null>(null);
+	let deletePreviewLoading = $state(false);
 	let deleteLoading = $state(false);
 
 	// 表单字段
@@ -74,6 +91,10 @@
 	}
 
 	function openEditModal(conn: Connection) {
+		if (!authStore.isAdmin) {
+			toast('仅管理员可编辑连接', 'error');
+			return;
+		}
 		editingConnId = conn.id;
 		saveError = '';
 		form = {
@@ -98,6 +119,10 @@
 
 	async function handleSaveConn(e: SubmitEvent) {
 		e.preventDefault();
+		if (!authStore.isAdmin) {
+			toast('仅管理员可管理连接', 'error');
+			return;
+		}
 		saveLoading = true;
 		saveError = '';
 		const base = {
@@ -130,12 +155,38 @@
 		}
 	}
 
+	async function openDeleteConfirm(conn: Connection) {
+		if (!authStore.isAdmin) {
+			toast('仅管理员可删除连接', 'error');
+			return;
+		}
+		deleteTarget = conn;
+		deletePreview = null;
+		deletePreviewLoading = true;
+		try {
+			deletePreview = await api.get<DeletePreview>(
+				`/admin/connections/${conn.id}/delete-preview`
+			);
+		} catch (err) {
+			deleteTarget = null;
+			toast(err instanceof ApiError ? err.message : '无法加载删除预览', 'error');
+		} finally {
+			deletePreviewLoading = false;
+		}
+	}
+
+	function closeDeleteConfirm() {
+		deleteTarget = null;
+		deletePreview = null;
+		deletePreviewLoading = false;
+	}
+
 	async function handleDelete() {
-		if (!deleteId) return;
+		if (!deleteTarget || !authStore.isAdmin) return;
 		deleteLoading = true;
 		try {
-			await api.delete(`/admin/connections/${deleteId}`);
-			deleteId = null;
+			await api.delete(`/admin/connections/${deleteTarget.id}`);
+			closeDeleteConfirm();
 			toast('连接已删除', 'success');
 			load(page);
 		} catch (err) {
@@ -172,79 +223,84 @@
 		{/if}
 	</div>
 
-	<!-- 连接卡片网格 -->
 	{#if loading}
 		<div class="flex justify-center items-center py-20">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</div>
-	{:else if connections.length === 0}
-		<div class="flex flex-col items-center justify-center py-20 text-base-content/40">
-			<svg class="w-12 h-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
-			</svg>
-			<p class="text-sm">暂无连接配置</p>
-			{#if authStore.isAdmin}
-				<button class="btn btn-primary btn-sm mt-3" onclick={openAddModal}>添加第一个连接</button>
-			{/if}
-		</div>
 	{:else}
-		<div class="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-			{#each connections as conn}
-				<div class="card bg-base-200 border border-base-300 hover:border-primary/30 hover:shadow-md transition-all">
-					<div class="card-body p-4">
-						<div class="flex items-start justify-between mb-2">
-							<div class="flex-1 min-w-0">
-								<h3 class="text-base font-semibold tracking-tight truncate">{conn.name}</h3>
-								<p class="text-xs text-base-content/55 mt-0.5 truncate font-mono">
-									{conn.host}:{conn.port} / <code class="text-xs">{conn.database}</code>
-								</p>
-							</div>
-							<span class="badge badge-sm {dbTypeColor(conn.db_type)} ml-2 flex-shrink-0">
-								{conn.db_type}
-							</span>
-						</div>
-
-						<div class="flex items-center gap-2 text-xs text-base-content/55">
-							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-							</svg>
-							<span>{conn.username}</span>
-							<span class="text-base-content/20">·</span>
-							<span class="text-base-content/30">密码已加密</span>
-						</div>
-
-						{#if conn.description}
-							<p class="text-xs text-base-content/45 mt-1 line-clamp-2">{conn.description}</p>
-						{/if}
-
+		<div class="overflow-x-auto rounded-lg border border-base-300">
+			<table class="table table-zebra table-sm">
+				<thead>
+					<tr class="text-base-content/60">
+						<th class="w-14">ID</th>
+						<th>名称</th>
+						<th>类型</th>
+						<th>主机</th>
+						<th class="w-16">端口</th>
+						<th>数据库</th>
+						<th>用户名</th>
+						<th>密码</th>
+						<th>描述</th>
+						<th>创建时间</th>
 						{#if authStore.isAdmin}
-							<div class="card-actions justify-end gap-1 mt-3 pt-3 border-t border-base-300">
-								<button
-									type="button"
-									class="btn btn-ghost btn-xs gap-1"
-									onclick={() => openEditModal(conn)}
-								>
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
-									</svg>
-									编辑
-								</button>
-								<button
-									class="btn btn-error btn-xs btn-outline gap-1"
-									onclick={() => (deleteId = conn.id)}
-								>
-									<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-									</svg>
-									删除
-								</button>
-							</div>
+							<th class="text-right w-36">操作</th>
 						{/if}
-					</div>
-				</div>
-			{/each}
+					</tr>
+				</thead>
+				<tbody>
+					{#each connections as conn}
+						<tr class="hover">
+							<td class="text-base-content/50 font-mono text-xs">{conn.id}</td>
+							<td class="font-medium max-w-[10rem] truncate" title={conn.name}>{conn.name}</td>
+							<td>
+								<span class="badge badge-sm {dbTypeColor(conn.db_type)}">{conn.db_type}</span>
+							</td>
+							<td class="font-mono text-xs max-w-[12rem] truncate" title={conn.host}>
+								{truncate(conn.host, 36)}
+							</td>
+							<td class="font-mono text-xs">{conn.port}</td>
+							<td class="font-mono text-xs max-w-[8rem] truncate" title={conn.database}>{conn.database}</td>
+							<td class="text-xs">{conn.username}</td>
+							<td class="text-xs text-base-content/50">已加密</td>
+							<td class="text-xs text-base-content/50 max-w-[8rem] truncate" title={conn.description || ''}>
+								{conn.description || '-'}
+							</td>
+							<td class="text-xs text-base-content/50 whitespace-nowrap">{formatDate(conn.created_at)}</td>
+							{#if authStore.isAdmin}
+								<td>
+									<div class="flex justify-end gap-1 flex-nowrap">
+										<button
+											type="button"
+											class="btn btn-xs btn-ghost"
+											onclick={() => openEditModal(conn)}
+										>编辑</button>
+										<button
+											type="button"
+											class="btn btn-xs btn-ghost text-error"
+											onclick={() => openDeleteConfirm(conn)}
+										>删除</button>
+									</div>
+								</td>
+							{/if}
+						</tr>
+					{:else}
+						<tr>
+							<td colspan={authStore.isAdmin ? 11 : 10} class="text-center text-base-content/40 py-12">
+								暂无连接配置
+								{#if authStore.isAdmin}
+									<button class="btn btn-primary btn-sm mt-3 block mx-auto" onclick={openAddModal}>
+										添加连接
+									</button>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
 		</div>
-		<Pagination {total} {page} {pageSize} onchange={load} />
+		{#if connections.length > 0}
+			<Pagination {total} {page} {pageSize} onchange={load} />
+		{/if}
 	{/if}
 </div>
 
@@ -323,10 +379,50 @@
 
 <!-- 删除确认 -->
 <ConfirmDialog
-	open={!!deleteId}
-	title="确认删除连接"
-	message="删除后无法恢复，相关权限配置也将失效。"
+	open={!!deleteTarget}
+	title="确认删除数据库连接"
+	message="此操作不可撤销。请确认以下连接及关联数据处理方式："
+	maxWidth="max-w-md"
+	confirmLabel="确认删除"
+	bodyLoading={deletePreviewLoading}
 	loading={deleteLoading}
 	onconfirm={handleDelete}
-	oncancel={() => (deleteId = null)}
-/>
+	oncancel={closeDeleteConfirm}
+>
+	{#if deletePreview}
+		<div class="rounded-lg border border-base-300 bg-base-200/80 p-3 text-sm space-y-1">
+			<div class="font-semibold text-base">{deletePreview.connection.name}</div>
+			<div class="text-base-content/60 font-mono text-xs">
+				ID {deletePreview.connection.id} · {deletePreview.connection.db_type} ·
+				{deletePreview.connection.host}:{deletePreview.connection.port} / {deletePreview.connection.database}
+			</div>
+			<div class="text-base-content/55 text-xs">用户 {deletePreview.connection.username}</div>
+		</div>
+		<div class="mt-4 space-y-2 text-sm">
+			<p class="font-medium text-base-content/80">将执行以下操作：</p>
+			<ul class="list-disc list-inside space-y-1.5 text-base-content/70 pl-0.5">
+				<li><span class="text-error font-medium">删除</span> 本条数据库连接配置</li>
+				<li>
+					<span class="text-error font-medium">删除</span> 访问密钥上的授权
+					<strong class="text-base-content">{deletePreview.permission_count}</strong> 条
+				</li>
+				{#if deletePreview.db_rule_count > 0}
+					<li>
+						<span class="text-error font-medium">删除</span> 数据库规则文档
+						<strong class="text-base-content">{deletePreview.db_rule_count}</strong> 条
+					</li>
+				{:else}
+					<li class="text-base-content/50">无关联的数据库规则文档</li>
+				{/if}
+				{#if deletePreview.audit_log_count > 0}
+					<li>
+						<span class="text-warning font-medium">保留</span> 历史审计日志
+						<strong class="text-base-content">{deletePreview.audit_log_count}</strong> 条（仅解除与本连接的关联，不删记录）
+					</li>
+				{:else}
+					<li class="text-base-content/50">无需要解除关联的审计日志</li>
+				{/if}
+			</ul>
+		</div>
+	{/if}
+</ConfirmDialog>

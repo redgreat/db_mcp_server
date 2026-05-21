@@ -901,27 +901,107 @@ def build_admin_router(cfg: Config):
         logger.info(f"更新连接 id={conn_id}: {name} by {user_data['username']}")
         return {"ok": True}
 
+    @router.get("/admin/connections/{conn_id}/delete-preview")
+    def delete_connection_preview(conn_id: int, authorization: str = Header(None)):
+        """删除前预览：统计将影响的关联数据（仅管理员）"""
+        auth_service.require_admin(authorization)
+
+        from sqlalchemy import Table, MetaData, func, inspect as sa_inspect
+
+        meta = MetaData()
+        conns = Table("db_connections", meta, autoload_with=engine)
+        with Session(engine) as s:
+            row = s.execute(select(conns).where(conns.c.id == conn_id)).mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail="连接不存在")
+
+            permissions = Table("permissions", meta, autoload_with=engine)
+            perm_count = s.execute(
+                select(func.count())
+                .select_from(permissions)
+                .where(permissions.c.connection_id == conn_id)
+            ).scalar() or 0
+
+            rule_count = 0
+            if "db_rules" in sa_inspect(engine).get_table_names():
+                db_rules = Table("db_rules", meta, autoload_with=engine)
+                rule_count = s.execute(
+                    select(func.count())
+                    .select_from(db_rules)
+                    .where(db_rules.c.connection_id == conn_id)
+                ).scalar() or 0
+
+            audit_logs = Table("audit_logs", meta, autoload_with=engine)
+            audit_count = s.execute(
+                select(func.count())
+                .select_from(audit_logs)
+                .where(audit_logs.c.connection_id == conn_id)
+            ).scalar() or 0
+
+        return {
+            "connection": {
+                "id": row["id"],
+                "name": row["name"],
+                "host": row["host"],
+                "port": row["port"],
+                "db_type": row["db_type"],
+                "database": row["database"],
+                "username": row["username"],
+            },
+            "permission_count": int(perm_count),
+            "db_rule_count": int(rule_count),
+            "audit_log_count": int(audit_count),
+        }
+
     @router.delete("/admin/connections/{conn_id}")
     def delete_connection(conn_id: int, authorization: str = Header(None)):
-        """删除数据库连接（仅管理员）"""
+        """删除数据库连接（仅管理员）；先解除/删除关联的权限、规则与审计引用"""
         user_data = auth_service.require_admin(authorization)
 
         from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("db_connections", meta, autoload_with=engine)
-        with Session(engine) as s:
-            s.execute(delete(t).where(t.c.id == conn_id))
-            s.commit()
+        from sqlalchemy.exc import IntegrityError
 
-        # 记录系统日志
+        meta = MetaData()
+        conns = Table("db_connections", meta, autoload_with=engine)
+        with Session(engine) as s:
+            row = s.execute(select(conns).where(conns.c.id == conn_id)).mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail="连接不存在")
+
+            permissions = Table("permissions", meta, autoload_with=engine)
+            s.execute(delete(permissions).where(permissions.c.connection_id == conn_id))
+
+            from sqlalchemy import inspect as sa_inspect
+            if "db_rules" in sa_inspect(engine).get_table_names():
+                db_rules = Table("db_rules", meta, autoload_with=engine)
+                s.execute(delete(db_rules).where(db_rules.c.connection_id == conn_id))
+
+            audit_logs = Table("audit_logs", meta, autoload_with=engine)
+            s.execute(
+                update(audit_logs)
+                .where(audit_logs.c.connection_id == conn_id)
+                .values(connection_id=None)
+            )
+
+            try:
+                s.execute(delete(conns).where(conns.c.id == conn_id))
+                s.commit()
+            except IntegrityError as exc:
+                s.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail="无法删除连接：仍存在未清理的关联数据，请稍后重试或联系管理员",
+                ) from exc
+
         system_logger.log(
             operation="delete_connection",
             resource_type="connection",
             user_id=user_data["user_id"],
             username=user_data["username"],
-            resource_id=conn_id
+            resource_id=conn_id,
         )
 
+        logger.info(f"删除连接 id={conn_id} by {user_data['username']}")
         return {"ok": True}
 
     # ==================== 权限管理 ====================
