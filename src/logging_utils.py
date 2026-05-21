@@ -13,10 +13,9 @@ def get_logger(name: str, log_dir: str) -> logging.Logger:
         logger.setLevel(logging.INFO)
         file_path = os.path.join(log_dir, f"{name}.log")
         handler = RotatingFileHandler(file_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
-        formatter = logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s %(message)s",
-            converter=log_record_time,
-        )
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+        # Python 3.13+ 不再支持 __init__(converter=...)，需在实例上设置
+        formatter.converter = log_record_time
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         stream = logging.StreamHandler()
