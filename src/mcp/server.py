@@ -313,7 +313,7 @@ def _execute_tool(
             perm_checker.check_permission(access_key, connection_id)
             eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
             database = args.get("database") or db_name
-            fmt = args.get("format", "pdf")
+            fmt = args.get("format", "markdown")
             if fmt == "pdf":
                 from ..tools.db_doc_tool import export_db_doc_pdf
                 result = export_db_doc_pdf(eng, database, db_type)
@@ -339,7 +339,7 @@ def _execute_tool(
                     result["text_description"] = generate_er_text_description(
                         eng, database, db_type, include_implicit)
             else:
-                fmt = args.get("format", "pdf")
+                fmt = args.get("format", "markdown")
                 import base64
                 import time
                 from ..tools.object_storage import ObjectStorageClient

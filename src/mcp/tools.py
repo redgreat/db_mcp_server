@@ -232,7 +232,7 @@ MCP_TOOLS = [
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "pdf"],
-                    "description": "输出格式，默认 pdf。当选择 markdown 时返回包含 Mermaid 源码与说明的 Markdown 文件"
+                    "description": "输出格式，默认 markdown（Mermaid+说明）。pdf 需服务器安装中文字体"
                 },
                 "save_path": {
                     "type": "string",
@@ -265,7 +265,7 @@ MCP_TOOLS = [
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "pdf"],
-                    "description": "输出格式，默认 pdf。当选择 markdown 时返回包含 Mermaid 源码与说明的 Markdown 文件"
+                    "description": "输出格式，默认 markdown。pdf 需服务器安装中文字体"
                 },
                 "save_path": {
                     "type": "string",

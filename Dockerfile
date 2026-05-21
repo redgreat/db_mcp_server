@@ -23,9 +23,9 @@ RUN npm run build
 # 阶段二：Python 运行时
 FROM python:3.13-slim
 
-# 安装supervisor
+# supervisor + 中文字体（PDF 导出 ER/数据字典等）
 RUN apt-get update && \
-    apt-get install -y supervisor && \
+    apt-get install -y supervisor fonts-noto-cjk fontconfig && \
     rm -rf /var/lib/apt/lists/*
 
 # 创建非root用户

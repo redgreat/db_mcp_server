@@ -442,6 +442,18 @@ def _find_cjk_font() -> Optional[str]:
                         font_path = os.path.join(root, font_name)
                         logger.info(f"找到中文字体: {font_path}")
                         return font_path
+                # Debian fonts-noto-cjk 等包常见文件名
+                for fname in files:
+                    lower = fname.lower()
+                    if lower.endswith((".ttf", ".ttc", ".otf")) and (
+                        "notosanscjk" in lower
+                        or "notosanssc" in lower
+                        or "wqy" in lower
+                        or "droidsansfallback" in lower
+                    ):
+                        font_path = os.path.join(root, fname)
+                        logger.info(f"找到中文字体: {font_path}")
+                        return font_path
 
     logger.warning("未找到系统中文字体，PDF 可能无法显示中文")
     return None
