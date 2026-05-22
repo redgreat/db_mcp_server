@@ -220,11 +220,11 @@
 							<td class="text-xs text-base-content/50">{formatDate(u.created_at)}</td>
 							<td>
 								<div class="flex justify-end gap-1.5">
-									<button type="button" class="btn btn-row-action btn-edit" onclick={() => openEdit(u)}>编辑</button>
-									<button type="button" class="btn btn-row-action btn-edit" onclick={() => openReset(u)}>重置密码</button>
+									<button type="button" class="btn btn-xs btn-table btn-primary" onclick={() => openEdit(u)}>编辑</button>
+									<button type="button" class="btn btn-xs btn-table btn-warning" onclick={() => openReset(u)}>重置密码</button>
 									<button
 										type="button"
-										class="btn btn-row-action btn-danger"
+										class="btn btn-xs btn-table btn-error"
 										disabled={u.id === authStore.user?.id}
 										onclick={() => (deleteUserId = u.id)}
 									>删除</button>

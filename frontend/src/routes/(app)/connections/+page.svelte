@@ -271,12 +271,12 @@
 									<div class="flex justify-end gap-1.5 flex-nowrap">
 										<button
 											type="button"
-											class="btn btn-row-action btn-edit"
+											class="btn btn-xs btn-table btn-primary"
 											onclick={() => openEditModal(conn)}
 										>编辑</button>
 										<button
 											type="button"
-											class="btn btn-row-action btn-danger"
+											class="btn btn-xs btn-table btn-error"
 											onclick={() => openDeleteConfirm(conn)}
 										>删除</button>
 									</div>

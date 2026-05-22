@@ -39,7 +39,7 @@
   font-size: 0.8125rem;
 }
 
-/* 主区列表页：表格（覆盖单元格上的 text-xs / text-sm，保持层次：表头 < 表体） */
+/* 主区列表页：表格（表头加粗，表体正文字号） */
 .app-shell-admin main .table-admin {
   border-collapse: separate;
   border-spacing: 0;
@@ -50,17 +50,25 @@
   overflow: hidden;
 }
 .app-shell-admin main .table-admin thead :where(tr) {
-  background: hsl(var(--b2) / 0.85);
-  border-bottom: 1px solid hsl(var(--bc) / 0.14);
+  background: hsl(var(--b3) / 0.55);
+  border-bottom: 2px solid hsl(var(--bc) / 0.12);
 }
 .app-shell-admin main .table-admin thead :where(th) {
-  font-size: 0.8125rem !important;
-  line-height: 1.35rem !important;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: hsl(var(--bc) / 0.75);
+  font-size: 0.875rem !important;
+  line-height: 1.4rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.03em;
+  color: hsl(var(--bc) / 0.95) !important;
   text-transform: none;
   white-space: nowrap;
+  padding-top: 0.875rem !important;
+  padding-bottom: 0.875rem !important;
+}
+/* 非 table-admin 的列表表头同样加粗 */
+.app-shell-admin main .table:not(.table-admin) thead :where(th) {
+  font-weight: 700 !important;
+  color: hsl(var(--bc) / 0.9) !important;
+  background: hsl(var(--b3) / 0.4);
 }
 .app-shell-admin main .table tbody :where(td) {
   font-size: 0.9375rem !important;
@@ -179,31 +187,35 @@ code {
   cursor: default;
 }
 
-/* 列表操作列按钮 */
-.app-shell-admin main .btn-row-action {
+/* 列表操作列：小号实心语义色按钮 */
+.app-shell-admin main .btn-table {
   font-size: 0.8125rem !important;
-  min-height: 1.875rem;
-  padding-left: 0.625rem;
-  padding-right: 0.625rem;
-  border-width: 1px;
+  min-height: 1.75rem !important;
+  height: 1.75rem !important;
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+  font-weight: 500;
+  border: none;
+  box-shadow: none;
 }
-.app-shell-admin main .btn-row-action.btn-edit {
-  border-color: hsl(var(--p) / 0.45);
-  color: hsl(var(--p));
-  background: hsl(var(--p) / 0.08);
+.app-shell-admin main .btn-table.btn-primary {
+  background-color: hsl(var(--p)) !important;
+  color: hsl(var(--pc)) !important;
 }
-.app-shell-admin main .btn-row-action.btn-edit:hover {
-  background: hsl(var(--p) / 0.18);
-  border-color: hsl(var(--p));
+.app-shell-admin main .btn-table.btn-success {
+  background-color: hsl(var(--su)) !important;
+  color: hsl(var(--suc)) !important;
 }
-.app-shell-admin main .btn-row-action.btn-danger {
-  border-color: hsl(var(--er) / 0.45);
-  color: hsl(var(--er));
-  background: hsl(var(--er) / 0.06);
+.app-shell-admin main .btn-table.btn-warning {
+  background-color: hsl(var(--wa)) !important;
+  color: hsl(var(--wac)) !important;
 }
-.app-shell-admin main .btn-row-action.btn-danger:hover {
-  background: hsl(var(--er) / 0.14);
-  border-color: hsl(var(--er));
+.app-shell-admin main .btn-table.btn-error {
+  background-color: hsl(var(--er)) !important;
+  color: hsl(var(--erc)) !important;
+}
+.app-shell-admin main .btn-table:disabled {
+  opacity: 0.45;
 }
 
 /* 脉冲点 */

@@ -101,9 +101,6 @@
 <div class="fade-in">
 	<div class="mb-6">
 		<h1 class="text-2xl font-bold tracking-tight">大模型配置</h1>
-		<p class="text-sm text-base-content/50 mt-1">
-			全局同一时间只能<strong>激活一个</strong>提供商；切换后其它配置自动停用。激活并填写 API Key 后，ER / SQL / 性能等工具统一走该模型。
-		</p>
 	</div>
 
 	{#if loading}
@@ -152,18 +149,18 @@
 							</td>
 							<td>
 								<div class="flex justify-end gap-1.5">
-									<button type="button" class="btn btn-row-action btn-edit" onclick={() => openEdit(config)}>编辑</button>
+									<button type="button" class="btn btn-xs btn-table btn-primary" onclick={() => openEdit(config)}>编辑</button>
 									{#if !config.is_active}
 										<button
 											type="button"
-											class="btn btn-row-action btn-edit"
+											class="btn btn-xs btn-table btn-success"
 											disabled={!config.has_api_key}
 											onclick={() => activateConfig(config.id)}
 										>
 											激活
 										</button>
 									{:else}
-										<span class="text-xs text-success px-2">当前使用</span>
+										<span class="badge badge-success badge-sm">当前使用</span>
 									{/if}
 								</div>
 							</td>

@@ -92,9 +92,6 @@
 <div class="fade-in">
 	<div class="mb-6">
 		<h1 class="text-2xl font-bold tracking-tight">大模型调用日志</h1>
-		<p class="text-sm text-base-content/50 mt-1">
-			记录每次调用的 Token 消耗、访问密钥与工具来源；全局仅一个模型配置可处于激活状态。
-		</p>
 	</div>
 
 	<h2 class="text-sm font-semibold text-base-content/70 mb-2">近 14 日 Token 汇总</h2>

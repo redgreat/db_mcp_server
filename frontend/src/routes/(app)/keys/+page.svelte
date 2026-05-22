@@ -427,15 +427,17 @@
 							<td class="text-xs text-base-content/50">{formatDate(key.created_at)}</td>
 							{#if authStore.isAdmin}
 								<td>
-									<div class="flex justify-end gap-1">
+									<div class="flex justify-end gap-1.5">
 										<button
-											class="btn btn-xs {key.enabled ? 'btn-ghost' : 'btn-success'} btn-outline"
+											type="button"
+											class="btn btn-xs btn-table {key.enabled ? 'btn-warning' : 'btn-success'}"
 											onclick={() => toggleKey(key.id, !key.enabled)}
 										>
 											{key.enabled ? '禁用' : '启用'}
 										</button>
 										<button
-											class="btn btn-xs btn-error btn-outline"
+											type="button"
+											class="btn btn-xs btn-table btn-error"
 											onclick={() => (deleteKeyId = key.id)}
 										>删除</button>
 									</div>
