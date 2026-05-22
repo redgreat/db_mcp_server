@@ -383,6 +383,7 @@ def _find_cjk_font() -> Optional[str]:
     cjk_font_names = [
         "NotoSansSC-Regular.ttf",
         "NotoSansSC-Regular.otf",
+        "NotoSansCJK-Regular.ttc",
         "NotoSansCJKsc-Regular.ttf",
         "NotoSansCJKsc-Regular.otf",
         "simhei.ttf",

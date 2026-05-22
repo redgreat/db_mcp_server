@@ -46,13 +46,27 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # 复制项目文件
 COPY . /app
 
-# 内置 Noto Sans SC（.otf，避免 fpdf2 直接使用 .ttc 乱码）
-RUN mkdir -p /app/src/static/fonts && \
-    curl -fsSL -o /app/src/static/fonts/NotoSansSC-Regular.otf \
-      "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
-
 # 复制前端构建产物（覆盖 src/static）
 COPY --from=frontend-builder /app/src/static /app/src/static
+
+# 从 apt 已安装的 fonts-noto-cjk 复制到项目目录（避免外网 CDN 403）
+RUN mkdir -p /app/src/static/fonts && \
+    set -e; \
+    SC_TTF=$(find /usr/share/fonts -type f -iname 'NotoSansSC-Regular.ttf' 2>/dev/null | head -1); \
+    SC_OTF=$(find /usr/share/fonts -type f -iname 'NotoSansSC-Regular.otf' 2>/dev/null | head -1); \
+    CJK_TTC=$(find /usr/share/fonts -type f -iname 'NotoSansCJK-Regular.ttc' 2>/dev/null | head -1); \
+    if [ -n "$SC_TTF" ]; then \
+      cp "$SC_TTF" /app/src/static/fonts/NotoSansSC-Regular.ttf; \
+    elif [ -n "$SC_OTF" ]; then \
+      cp "$SC_OTF" /app/src/static/fonts/NotoSansSC-Regular.otf; \
+    elif [ -n "$CJK_TTC" ]; then \
+      cp "$CJK_TTC" /app/src/static/fonts/NotoSansCJK-Regular.ttc; \
+    else \
+      echo "ERROR: fonts-noto-cjk 未提供可用字体文件" >&2; \
+      find /usr/share/fonts -iname '*noto*' 2>/dev/null | head -20 >&2; \
+      exit 1; \
+    fi && \
+    ls -la /app/src/static/fonts/
 
 # 创建必要的目录并设置权限
 RUN mkdir -p /var/log/db_mcp_server /data/admin && \
