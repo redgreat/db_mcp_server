@@ -507,7 +507,10 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     return {
         "success": True,
         "format": "pdf",
+        "filename": filename,
+        "size_bytes": len(pdf_bytes),
         "file_path": saved_to,
         "download_url": download_url,
-        "mermaid_preview": mermaid_preview
+        "mermaid_preview": mermaid_preview,
+        "table_count": mermaid_data.get("table_count"),
     }

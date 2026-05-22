@@ -14,5 +14,6 @@ fpdf2
 openai
 openpyxl
 oss2
+requests
 pymssql
 tzdata

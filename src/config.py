@@ -9,6 +9,8 @@ class ServerConfig:
     """服务器配置"""
     host: str
     port: int
+    # MCP 返回本地下载链接时拼绝对地址，如 https://mcp.example.com
+    public_base_url: Optional[str] = None
 
 
 @dataclass
@@ -55,7 +57,7 @@ class LoggingConfig:
 
 @dataclass
 class ObjectStorageConfig:
-    provider: str
+    provider: str = "ali-oss"
     endpoint: Optional[str] = None
     bucket: Optional[str] = None
     access_key_id: Optional[str] = None
@@ -64,6 +66,15 @@ class ObjectStorageConfig:
     path_prefix: Optional[str] = None
     public_base_url: Optional[str] = None
     enabled: bool = False
+    # STS / SRE Open API（与 dbadmin OSS 一致，provider 填 sre-oss-sts）
+    app_code: Optional[str] = None
+    identity_url: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    scope: Optional[str] = None
+    upload_api_url: Optional[str] = None
+    direct_download_base_url: Optional[str] = None
+    request_timeout_seconds: int = 30
 
 
 @dataclass

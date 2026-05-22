@@ -621,53 +621,138 @@ async def execute_mcp_tool(
                 result = {"format": "markdown", "content": md}
 
         elif tool_name == "generate_er_diagram":
-            from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description, export_er_report_pdf
+            import os
+            from ..tools.db_er_tool import (
+                generate_er_mermaid,
+                generate_er_text_description,
+                export_er_report_pdf,
+            )
+            from ..tools.file_upload import build_download_mcp_content, upload_artifact
+
             database = arguments.get("database") or conn_row["database"]
             include_columns = arguments.get("include_columns", True)
             include_implicit = arguments.get("include_implicit", True)
             output_type = arguments.get("output_type", "both")
             fmt = arguments.get("format", "markdown")
             save_path = arguments.get("save_path")
+            upload_to_oss = arguments.get("upload_to_oss")
+            if upload_to_oss is None:
+                upload_to_oss = bool(cfg.object_storage and cfg.object_storage.enabled)
+
+            if upload_to_oss:
+                if fmt == "pdf":
+                    pdf_result = export_er_report_pdf(
+                        engine,
+                        database,
+                        conn_row["db_type"],
+                        include_columns,
+                        include_implicit,
+                        save_path,
+                    )
+                    file_path = pdf_result["file_path"]
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
+                    filename = pdf_result.get("filename") or os.path.basename(file_path)
+                    content_type = "application/pdf"
+                    extra = {
+                        "size_bytes": pdf_result.get("size_bytes", len(file_data)),
+                        "table_count": pdf_result.get("table_count"),
+                        "mermaid_preview": pdf_result.get("mermaid_preview"),
+                        "provider": None,
+                    }
+                else:
+                    mer = generate_er_mermaid(
+                        engine,
+                        database,
+                        conn_row["db_type"],
+                        include_columns,
+                        include_implicit,
+                    )
+                    desc = generate_er_text_description(
+                        engine, database, conn_row["db_type"], include_implicit
+                    )
+                    md = (
+                        f"# 数据库 ER 图 — {database}\n\n"
+                        f"```mermaid\n{mer['mermaid']}\n```\n\n{desc}\n"
+                    )
+                    file_data = md.encode("utf-8")
+                    ts = time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"db_er_{database}_{ts}.md"
+                    content_type = "text/markdown; charset=utf-8"
+                    extra = {
+                        "size_bytes": len(file_data),
+                        "table_count": mer.get("table_count"),
+                    }
+
+                meta = upload_artifact(
+                    cfg,
+                    category="er",
+                    filename=filename,
+                    data=file_data,
+                    content_type=content_type,
+                )
+                extra["provider"] = meta.get("provider")
+                extra["object_key"] = meta.get("object_key")
+                download_url = meta["download_url"]
+
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation=f"mcp_{tool_name}",
+                    status="success",
+                    access_key=access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    duration_ms=duration_ms,
+                )
+                return build_download_mcp_content(
+                    title="ER 图",
+                    download_url=download_url,
+                    filename=filename,
+                    fmt=fmt,
+                    extra=extra,
+                )
 
             if fmt == "pdf":
                 pdf_result = export_er_report_pdf(
-                    engine, database, conn_row["db_type"], include_columns, include_implicit, save_path
+                    engine,
+                    database,
+                    conn_row["db_type"],
+                    include_columns,
+                    include_implicit,
+                    save_path,
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
                 audit_logger.log(
-                    operation=f"mcp_{tool_name}", status="success", access_key=access_key,
-                    client_ip=client_ip, connection_id=connection_id, duration_ms=duration_ms
+                    operation=f"mcp_{tool_name}",
+                    status="success",
+                    access_key=access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    duration_ms=duration_ms,
                 )
-
-                resp_content = []
-                resp_content.append({
-                    "type": "resource",
-                    "resource": {
-                        "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
-                        "mimeType": "application/pdf",
-                        "blob": pdf_result["pdf_base64"]
-                    }
-                })
-
-                msg_body = {
-                    "filename": pdf_result["filename"],
-                    "size_bytes": pdf_result["size_bytes"],
-                    "message": f"ER 图报告已生成：{pdf_result['filename']}"
-                }
-                if pdf_result.get("saved_to"):
-                    msg_body["saved_to"] = pdf_result["saved_to"]
-                    msg_body["message"] += f"，已自动保存到本地：{pdf_result['saved_to']}"
-
-                resp_content.append({
-                    "type": "text",
-                    "text": json.dumps(msg_body, ensure_ascii=False)
-                })
-                return {"content": resp_content}
+                public = (getattr(cfg.server, "public_base_url", None) or "").strip().rstrip("/")
+                rel = pdf_result.get("download_url") or ""
+                download_url = f"{public}{rel}" if public else rel
+                return build_download_mcp_content(
+                    title="ER 图 PDF",
+                    download_url=download_url,
+                    filename=pdf_result.get("filename") or "er.pdf",
+                    fmt="pdf",
+                    extra={
+                        "size_bytes": pdf_result.get("size_bytes"),
+                        "table_count": pdf_result.get("table_count"),
+                        "file_path": pdf_result.get("file_path"),
+                    },
+                )
 
             result = {}
             if output_type in ("mermaid", "both"):
                 result["mermaid_result"] = generate_er_mermaid(
-                    engine, database, conn_row["db_type"], include_columns, include_implicit
+                    engine,
+                    database,
+                    conn_row["db_type"],
+                    include_columns,
+                    include_implicit,
                 )
             if output_type in ("text", "both"):
                 result["text_description"] = generate_er_text_description(

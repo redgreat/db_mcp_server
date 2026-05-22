@@ -203,7 +203,8 @@ MCP_TOOLS = [
         description=(
             "生成数据库 ER 图。分析整库表结构和外键关系，"
             "自动推断命名约定中的隐含关系（如 user_id → users），"
-            "输出 Mermaid erDiagram 代码和文字描述。可用于确认实体间关系后再次调整。"
+            "输出 Mermaid erDiagram 代码和文字描述。"
+            "当 object_storage 已启用或 upload_to_oss=true 时，将 markdown/pdf 上传到 OSS 并返回可点击的下载链接。"
         ),
         input_schema={
             "type": "object",
@@ -237,6 +238,10 @@ MCP_TOOLS = [
                 "save_path": {
                     "type": "string",
                     "description": "可选。本地保存路径（绝对路径）。如果提供，服务器将直接把文件保存到此路径。"
+                },
+                "upload_to_oss": {
+                    "type": "boolean",
+                    "description": "是否将最终文件（markdown/pdf）上传到 OSS 并返回可点击下载链接。默认：object_storage.enabled=true 时为 true，否则为 false"
                 }
             },
             "required": ["connection_id"]
