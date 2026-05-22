@@ -379,11 +379,12 @@ def _find_cjk_font() -> Optional[str]:
 
     logger = logging.getLogger(__name__)
 
-    # 优先 .ttf/.otf（fpdf2 对 .ttc 需 collection_font_number，易乱码）
+    # 优先简体 SC 的 .ttf/.otf（TTC 易因 face 索引错误导致 PDF 叠字乱码）
     cjk_font_names = [
-        "NotoSansSC-Regular.ttf",
         "NotoSansSC-Regular.otf",
-        "NotoSansCJK-Regular.ttc",
+        "NotoSansSC-Regular.ttf",
+        "NotoSansCJKsc-Regular.otf",
+        "NotoSansCJKsc-Regular.ttf",
         "NotoSansCJKsc-Regular.ttf",
         "NotoSansCJKsc-Regular.otf",
         "simhei.ttf",
@@ -462,12 +463,13 @@ def _find_cjk_font() -> Optional[str]:
                         return font_path
                 for fname in sorted(files):
                     lower = fname.lower()
-                    if lower.endswith(".ttc") and (
+                    if lower.endswith((".ttc", ".otc")) and (
                         "notosans" in lower or "wqy" in lower
                     ):
                         font_path = os.path.join(root, fname)
                         logger.warning(
-                            "使用 TTC 字体（若 PDF 乱码请改用 .ttf）: %s", font_path
+                            "回退 TTC 字体（易乱码，请提供 NotoSansSC-Regular.otf）: %s",
+                            font_path,
                         )
                         return font_path
 

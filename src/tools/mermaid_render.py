@@ -1,15 +1,27 @@
 """将 Mermaid 源码渲染为 PNG（依赖 mermaid-cli / mmdc）。"""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
+
+# Docker 内非 root 用户跑 Chromium 需关闭沙箱（写死在代码里，无需单独配置文件）
+_PUPPETEER_CONFIG_JSON = {
+    "args": [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--font-render-hinting=none",
+    ]
+}
 
 
 def mmdc_available() -> bool:
@@ -41,6 +53,14 @@ def render_mermaid_to_png(
         f.write(mermaid_source)
         mmd_path = f.name
 
+    puppeteer_cfg = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    )
+    json.dump(_PUPPETEER_CONFIG_JSON, puppeteer_cfg, ensure_ascii=False)
+    puppeteer_cfg.flush()
+    puppeteer_path = puppeteer_cfg.name
+    puppeteer_cfg.close()
+
     try:
         cmd = [
             "mmdc",
@@ -54,6 +74,8 @@ def render_mermaid_to_png(
             str(width),
             "-s",
             str(scale),
+            "-p",
+            puppeteer_path,
         ]
         env = os.environ.copy()
         # Docker / Linux 下指定 Chromium 可执行文件（若存在）
@@ -75,9 +97,10 @@ def render_mermaid_to_png(
         )
         if proc.returncode != 0:
             logger.error(
-                "mmdc 失败: rc=%s stderr=%s",
+                "mmdc 失败: rc=%s stdout=%s stderr=%s",
                 proc.returncode,
-                (proc.stderr or "")[:800],
+                (proc.stdout or "")[:400],
+                (proc.stderr or "")[:1200],
             )
             return False
         if not out.is_file() or out.stat().st_size < 100:
@@ -92,10 +115,11 @@ def render_mermaid_to_png(
         logger.error("mmdc 异常: %s", e)
         return False
     finally:
-        try:
-            os.unlink(mmd_path)
-        except OSError:
-            pass
+        for p in (mmd_path, puppeteer_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 def render_mermaid_parts_to_pngs(

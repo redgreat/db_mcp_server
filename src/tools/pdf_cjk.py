@@ -1,8 +1,8 @@
-"""FPDF2 中文字体注册（避免 .ttc 未指定 face 导致乱码）。"""
+"""FPDF2 中文字体与排版（避免 TTC 错索引、multi_cell 坐标错乱导致叠字）。"""
 from __future__ import annotations
 
 import logging
-import os
+import re
 from typing import Optional
 
 from fpdf import FPDF
@@ -11,61 +11,206 @@ from .db_doc_tool import _find_cjk_font
 
 logger = logging.getLogger(__name__)
 
-FONT_REGULAR = "AppCJK"
-FONT_BOLD = "AppCJK-Bold"
+FONT_FAMILY = "NotoSC"
+
+
+def _strip_md(text: str) -> str:
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    return text.strip()
 
 
 def register_cjk_fonts(pdf: FPDF) -> str:
-    """注册可用的中文 TrueType/OpenType 字体，返回字体路径。"""
+    """注册简体中文 TrueType/OpenType（禁止默认 TTC 错 face）。"""
     font_path = _find_cjk_font()
     if not font_path:
         raise RuntimeError(
-            "未找到可用的中文字体（需 .ttf/.otf）。"
-            "请将 NotoSansSC-Regular.ttf 放入 src/static/fonts/，"
-            "或在镜像中安装 fonts-noto-cjk 并确保存在 .ttf 文件。"
+            "未找到可用的简体中文字体（需 NotoSansSC .ttf/.otf）。"
+            "请重新构建镜像或放入 src/static/fonts/NotoSansSC-Regular.otf"
         )
 
-    ext = font_path.lower()
+    lower = font_path.lower()
     kwargs: dict = {}
-    if ext.endswith(".ttc") or ext.endswith(".otc"):
-        # fpdf2 2.8+：TTC 必须指定字形索引，否则易出现乱码
-        kwargs["collection_font_number"] = 0
-        logger.info("使用 TTC/OTC 字体 collection_font_number=0: %s", font_path)
+    if lower.endswith(".ttc") or lower.endswith(".otc"):
+        # NotoSansCJK.ttc：face 0 在部分环境为日文字形，易叠字乱码
+        kwargs["collection_font_number"] = 2
+        logger.warning(
+            "使用 TTC 字体 collection_font_number=2（建议改用 NotoSansSC .otf）: %s",
+            font_path,
+        )
 
     try:
-        pdf.add_font(FONT_REGULAR, "", font_path, **kwargs)
-        pdf.add_font(FONT_BOLD, "", font_path, **kwargs)
+        pdf.add_font(FONT_FAMILY, style="", fname=font_path, **kwargs)
+    except TypeError:
+        pdf.add_font(FONT_FAMILY, "", font_path, **kwargs)
     except Exception as e:
         raise RuntimeError(f"加载中文字体失败: {font_path}: {e}") from e
 
-    logger.info("PDF 已加载中文字体: %s", font_path)
+    logger.info("PDF 中文字体: %s", font_path)
     return font_path
 
 
-def set_cjk_font(pdf: FPDF, style: str = "", size: int = 10) -> None:
-    """设置正文字体；粗体使用同一字族（无独立粗体文件时）。"""
-    name = FONT_BOLD if style.upper() == "B" else FONT_REGULAR
-    pdf.set_font(name, size=size)
+def set_cjk_font(
+    pdf: FPDF,
+    style: str = "",
+    size: int = 10,
+    *,
+    bold: Optional[bool] = None,
+) -> None:
+    is_bold = bold if bold is not None else str(style).upper() == "B"
+    pdf.set_font(FONT_FAMILY, style="B" if is_bold else "", size=size)
 
 
 def text_width(pdf: FPDF) -> float:
-    """可用文本宽度（避免 w=0 在部分状态下触发 fpdf2 宽度错误）。"""
-    w = pdf.w - pdf.l_margin - pdf.r_margin
-    return max(w, 20.0)
+    return max(float(pdf.w - pdf.l_margin - pdf.r_margin), 30.0)
 
 
-def ensure_vertical_space(pdf: FPDF, needed_mm: float = 15) -> None:
-    """当前页剩余高度不足时换页。"""
+def ensure_vertical_space(pdf: FPDF, needed_mm: float = 12) -> None:
     if pdf.get_y() + needed_mm > pdf.h - pdf.b_margin:
         pdf.add_page()
+        pdf.set_x(pdf.l_margin)
 
 
-def safe_multi_cell(pdf: FPDF, text: str, h: float = 6, style: str = "", size: int = 9) -> None:
+def _reset_x(pdf: FPDF) -> None:
+    pdf.set_x(pdf.l_margin)
+
+
+def safe_multi_cell(
+    pdf: FPDF,
+    text: str,
+    *,
+    h: float = 5.5,
+    bold: bool = False,
+    size: int = 9,
+) -> None:
+    text = _strip_md(text)
     if not text:
         return
-    ensure_vertical_space(pdf, needed_mm=h * 2)
-    set_cjk_font(pdf, style, size)
-    pdf.multi_cell(text_width(pdf), h, text)
+    ensure_vertical_space(pdf, needed_mm=h * 3)
+    set_cjk_font(pdf, bold=bold, size=size)
+    w = text_width(pdf)
+    _reset_x(pdf)
+    try:
+        pdf.multi_cell(w, h, text, new_x="LMARGIN", new_y="NEXT")
+    except TypeError:
+        pdf.multi_cell(w, h, text)
+        _reset_x(pdf)
+        pdf.ln(0)
+
+
+def write_heading(pdf: FPDF, text: str, level: int = 2) -> None:
+    sizes = {1: 16, 2: 13, 3: 11}
+    safe_multi_cell(pdf, text, h=7, bold=True, size=sizes.get(level, 11))
+    pdf.ln(1)
+
+
+def write_er_pdf_summary(pdf: FPDF, catalog: dict) -> None:
+    """ER PDF 正文：结构化摘要，避免整段 Markdown 灌入导致排版错乱。"""
+    db = catalog.get("database", "")
+    rc = catalog.get("role_counts") or {}
+    write_heading(pdf, f"数据库 {db} — 业务实体归纳", level=1)
+    safe_multi_cell(
+        pdf,
+        f"物理表 {catalog.get('table_count', 0)} 张，外键 {catalog.get('fk_count', 0)} 条。",
+        size=10,
+    )
+    pdf.ln(2)
+
+    write_heading(pdf, "表角色统计", level=2)
+    labels = {
+        "core": "核心实体",
+        "entity": "业务表",
+        "detail": "明细/从表",
+        "bridge": "关联/映射",
+        "dict": "字典/配置",
+        "log": "日志/审计",
+        "job": "任务/调度",
+        "technical": "技术/未分类",
+    }
+    for key, label in labels.items():
+        if rc.get(key):
+            safe_multi_cell(pdf, f"• {label}: {rc[key]} 张", size=9)
+
+    pdf.ln(2)
+    write_heading(pdf, "按业务域的核心实体（摘要）", level=2)
+    safe_multi_cell(
+        pdf,
+        "完整表清单与全部关系请使用 format=markdown 导出。下图按业务域分片展示 ER 关系。",
+        size=9,
+    )
+    pdf.ln(1)
+
+    domains = catalog.get("domains") or {}
+    sorted_domains = sorted(
+        domains.items(),
+        key=lambda x: -sum(1 for t in x[1] if t.get("role") in ("core", "entity")),
+    )
+    max_domains = 18
+    for i, (domain, tables) in enumerate(sorted_domains):
+        if i >= max_domains:
+            safe_multi_cell(
+                pdf,
+                f"… 另有 {len(sorted_domains) - max_domains} 个业务域未在本文展开",
+                size=9,
+            )
+            break
+        core_n = sum(1 for t in tables if t.get("role") in ("core", "entity"))
+        from .er_entity_catalog import _domain_label
+
+        domain_label = _domain_label(domain)
+        write_heading(
+            pdf,
+            f"{domain_label}（{domain}，{len(tables)} 张，核心/业务 {core_n}）",
+            level=3,
+        )
+        shown = 0
+        for t in tables:
+            if t.get("role") in ("log", "job", "technical"):
+                continue
+            if shown >= 12:
+                safe_multi_cell(pdf, "  • … 本域更多表见 Markdown 完整版", size=8)
+                break
+            shown += 1
+            name = t.get("entity_name") or t.get("table", "")
+            role = t.get("role", "")
+            line = f"• {name}（{t.get('table', '')}）"
+            safe_multi_cell(pdf, line, size=8)
+            for a in (t.get("attributes") or [])[:4]:
+                safe_multi_cell(pdf, f"    - {a}", size=8, h=5)
+        pdf.ln(1)
+
+
+def write_markdownish_lines(pdf: FPDF, text: str, body_size: int = 9) -> None:
+    """将 Markdown 风格文本写入 PDF（已剥离标记，控制行距）。"""
+    for line in text.split("\n"):
+        stripped = _strip_md(line.strip())
+        if not stripped:
+            pdf.ln(2)
+            _reset_x(pdf)
+            continue
+        if stripped.startswith("# "):
+            write_heading(pdf, stripped[2:], level=1)
+            continue
+        if stripped.startswith("## "):
+            write_heading(pdf, stripped[3:], level=2)
+            continue
+        if stripped.startswith("### "):
+            write_heading(pdf, stripped[4:], level=3)
+            continue
+        if stripped.startswith("- "):
+            prefix = "    " if line.startswith("  ") else "  "
+            safe_multi_cell(pdf, f"{prefix}• {stripped[2:]}", size=body_size, h=5.5)
+            continue
+        if stripped.startswith("> "):
+            safe_multi_cell(pdf, stripped, size=max(body_size - 1, 8))
+            continue
+        if stripped.startswith("|"):
+            continue
+        safe_multi_cell(pdf, stripped, size=body_size, h=5.5)
 
 
 def _png_pixel_size(path: str) -> tuple[int, int]:
@@ -78,49 +223,24 @@ def _png_pixel_size(path: str) -> tuple[int, int]:
     return max(w_px, 1), max(h_px, 1)
 
 
-def place_image_fit_page(pdf: FPDF, image_path: str) -> None:
-    """新页放置图片，按页宽缩放，过高则压缩到可打印高度。"""
+def place_image_fit_page(pdf: FPDF, image_path: str, caption: Optional[str] = None) -> None:
+    """新页放置图片，按页宽缩放。"""
     pdf.add_page()
+    _reset_x(pdf)
+    if caption:
+        safe_multi_cell(pdf, caption, size=10, bold=True)
+        pdf.ln(2)
+
     ew = text_width(pdf)
-    max_h = pdf.h - pdf.t_margin - pdf.b_margin - 15
+    max_h = pdf.h - pdf.t_margin - pdf.b_margin - 20
     w_px, h_px = _png_pixel_size(image_path)
     h_mm = ew * h_px / w_px
     w_mm = ew
     if h_mm > max_h:
         h_mm = max_h
         w_mm = h_mm * w_px / h_px
-    pdf.image(image_path, w=w_mm, h=h_mm)
-    pdf.ln(4)
-
-
-def write_markdownish_lines(pdf: FPDF, text: str, body_size: int = 9) -> None:
-    """将 Markdown 风格文本写入 PDF。"""
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if not stripped:
-            pdf.ln(2)
-            continue
-        if stripped.startswith("# "):
-            continue
-        if stripped.startswith("### "):
-            set_cjk_font(pdf, "B", 12)
-            ensure_vertical_space(pdf, 10)
-            pdf.ln(2)
-            safe_multi_cell(pdf, stripped[4:], h=7, style="B", size=12)
-            pdf.ln(1)
-        elif stripped.startswith("## "):
-            set_cjk_font(pdf, "B", 14)
-            ensure_vertical_space(pdf, 12)
-            pdf.ln(2)
-            safe_multi_cell(pdf, stripped[3:], h=8, style="B", size=14)
-            pdf.ln(2)
-        elif stripped.startswith("- "):
-            prefix = "    " if line.startswith("  ") else "  "
-            safe_multi_cell(pdf, f"{prefix}• {stripped[2:]}", h=6, size=body_size - (1 if line.startswith("  ") else 0))
-        elif stripped.startswith("> "):
-            safe_multi_cell(pdf, stripped, h=6, size=max(body_size - 1, 8))
-        elif stripped.startswith("|"):
-            continue
-        else:
-            safe_multi_cell(pdf, stripped, h=6, size=body_size)
-            pdf.ln(1)
+    x = pdf.l_margin + max(0, (ew - w_mm) / 2)
+    y = pdf.get_y()
+    pdf.image(image_path, x=x, y=y, w=w_mm, h=h_mm)
+    pdf.set_y(y + h_mm + 4)
+    _reset_x(pdf)

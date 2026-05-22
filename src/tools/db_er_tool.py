@@ -419,10 +419,9 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
 
     from .pdf_cjk import (
         register_cjk_fonts,
-        set_cjk_font,
         safe_multi_cell,
         place_image_fit_page,
-        write_markdownish_lines,
+        write_er_pdf_summary,
     )
     from .mermaid_render import mmdc_available, render_mermaid_parts_to_pngs
     from .er_entity_catalog import build_entity_catalog, generate_mermaid_parts_by_domain
@@ -459,57 +458,45 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
             logger.warning("未安装 mmdc，PDF 将不含 ER 矢量图，仅文字说明")
 
         pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=12)
-        register_cjk_fonts(pdf)
+        pdf.set_auto_page_break(auto=True, margin=14)
+        pdf.set_margins(14, 14, 14)
+        font_used = register_cjk_fonts(pdf)
+        logger.info("ER PDF 使用字体: %s", font_used)
         pdf.add_page()
 
         safe_multi_cell(
             pdf,
             f"数据库 ER 关系报告 — {database}",
-            h=10,
-            style="B",
+            bold=True,
             size=18,
+            h=9,
         )
-        pdf.ln(3)
-        rc = catalog.get("role_counts") or {}
-        safe_multi_cell(
-            pdf,
-            f"物理表 {catalog['table_count']} 张，外键 {catalog['fk_count']} 条；"
-            f"核心实体 {rc.get('core', 0)}、业务表 {rc.get('entity', 0)}、"
-            f"明细 {rc.get('detail', 0)}、日志 {rc.get('log', 0)} 等（见下文角色统计）。",
-            h=6,
-            size=10,
-        )
-        pdf.ln(3)
+        pdf.ln(4)
 
-        write_markdownish_lines(pdf, text_desc)
+        write_er_pdf_summary(pdf, catalog)
 
         if png_paths:
+            pdf.add_page()
             safe_multi_cell(
                 pdf,
                 f"ER 关系图（共 {len(png_paths)} 张，按业务域分片）",
-                h=8,
-                style="B",
+                bold=True,
                 size=14,
             )
             pdf.ln(2)
             for i, png in enumerate(png_paths, 1):
-                safe_multi_cell(
+                place_image_fit_page(
                     pdf,
-                    f"分片 {i} / {len(png_paths)}",
-                    h=6,
-                    size=10,
+                    png,
+                    caption=f"分片 {i} / {len(png_paths)}",
                 )
-                pdf.ln(1)
-                place_image_fit_page(pdf, png)
         else:
             pdf.add_page()
             safe_multi_cell(
                 pdf,
-                "未生成 ER 图片：服务器未安装 mermaid-cli (mmdc)。"
-                "请重新构建镜像，或使用 format=markdown 获取可渲染的 Mermaid 文件。",
-                h=8,
-                style="B",
+                "未生成 ER 关系图图片。mmdc/Chromium 在容器中可能失败（请查看日志）。"
+                "可重新构建镜像并确认 mmdc 可用，或使用 format=markdown 导出。",
+                bold=True,
                 size=12,
             )
 
