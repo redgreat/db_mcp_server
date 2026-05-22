@@ -415,85 +415,103 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
                          include_columns: bool = True,
                          include_implicit: bool = True,
                          save_path: Optional[str] = None) -> Dict[str, Any]:
-    """生成 PDF 格式的 ER 图报告，返回 base64 编码的 PDF 内容"""
-    from fpdf import FPDF
-    from .db_doc_tool import _find_cjk_font
+    """生成 PDF 格式的 ER 图报告（中文 + 分片 Mermaid 渲染为图片）。"""
     import os
+    import tempfile
+    from fpdf import FPDF
+    from pathlib import Path
+
+    from .pdf_cjk import register_cjk_fonts, set_cjk_font, write_markdownish_lines
+    from .mermaid_render import mmdc_available, render_mermaid_parts_to_pngs
 
     logger = logging.getLogger(__name__)
 
-    # 生成内容
     mermaid_data = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
     text_desc = generate_er_text_description(eng, database, db_type, include_implicit)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_er_{database}_{timestamp}.pdf"
 
-    # 获取通用的下载目录
-    from pathlib import Path
     downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
     save_path = str(downloads_dir / filename)
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    # 可视化用精简图（不含字段块，分片更易渲染）
+    diagram_parts = generate_er_mermaid_parts(
+        eng,
+        database,
+        db_type,
+        include_columns=False,
+        include_implicit=include_implicit,
+        max_tables_per_part=40,
+        max_chars=120000,
+    )
 
-    # 查找并注册中文字体
-    has_cjk_font = False
-    font_path = _find_cjk_font()
-    if font_path:
-        try:
-            pdf.add_font("CJK", "", font_path, uni=True)
-            pdf.add_font("CJKb", "", font_path, uni=True)
-            has_cjk_font = True
-        except Exception as e:
-            logger.warning(f"加载中文字体失败: {e}")
-
-    if not has_cjk_font:
-        raise RuntimeError("未找到可用的中文字体，无法生成 PDF。")
-
-    pdf.add_page()
-
-    def set_font(style="", size=10):
-        if "B" in style.upper():
-            pdf.set_font("CJKb", "", size + 1)
+    png_paths: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="er_mmd_") as tmp:
+        if mmdc_available():
+            png_paths = render_mermaid_parts_to_pngs(
+                diagram_parts, tmp, prefix="er"
+            )
         else:
-            pdf.set_font("CJK", "", size)
+            logger.warning("未安装 mmdc，PDF 将不含 ER 矢量图，仅文字说明")
 
-    # 绘制标题和说明
-    set_font("B", 18)
-    pdf.cell(0, 12, f"数据库 ER 关系报告 — {database}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=12)
+        register_cjk_fonts(pdf)
+        pdf.add_page()
 
-    # 绘制文字描述部分
-    for line in text_desc.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            continue  # 已经画过大标题了
-        elif stripped.startswith("## "):
-            set_font("B", 14)
-            pdf.ln(5)
-            pdf.cell(0, 10, stripped[3:], new_x="LMARGIN", new_y="NEXT")
-        elif stripped.startswith("- "):
-            set_font("", 9)
-            pdf.cell(0, 6, f"  {stripped}", new_x="LMARGIN", new_y="NEXT")
-        elif stripped:
-            set_font("", 9)
-            pdf.multi_cell(0, 6, stripped)
-            pdf.ln(2)
+        set_cjk_font(pdf, "B", 18)
+        pdf.cell(0, 12, f"数据库 ER 关系报告 — {database}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+        set_cjk_font(pdf, size=10)
+        pdf.multi_cell(
+            0,
+            6,
+            f"共 {mermaid_data['table_count']} 张表，"
+            f"显式外键 {mermaid_data['explicit_relationships']} 个，"
+            f"推断关系 {mermaid_data['implicit_relationships']} 个。",
+        )
+        pdf.ln(3)
 
-    # 绘制 Mermaid 源码部分
-    pdf.add_page()
-    set_font("B", 14)
-    pdf.cell(0, 10, "Mermaid ER 图源码 (可在支持 Mermaid 的编辑器中渲染)", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(2)
+        write_markdownish_lines(pdf, text_desc)
 
-    pdf.set_fill_color(240, 240, 240)
-    set_font("", 8)
-    # 使用 multi_cell 绘制代码块，虽然不能直接画图，但提供了可保存的代码
-    pdf.multi_cell(0, 5, mermaid_data["mermaid"], border=1, fill=True)
+        if png_paths:
+            pdf.add_page()
+            set_cjk_font(pdf, "B", 14)
+            pdf.cell(
+                0,
+                10,
+                f"ER 关系图（共 {len(png_paths)} 张，按表分片）",
+                new_x="LMARGIN",
+                new_y="NEXT",
+            )
+            pdf.ln(4)
+            page_w = pdf.w - pdf.l_margin - pdf.r_margin
+            for i, png in enumerate(png_paths, 1):
+                if pdf.get_y() > 200:
+                    pdf.add_page()
+                    set_cjk_font(pdf, "B", 12)
+                    pdf.cell(0, 8, f"ER 关系图（续 {i}/{len(png_paths)}）", new_x="LMARGIN", new_y="NEXT")
+                    pdf.ln(2)
+                set_cjk_font(pdf, size=9)
+                pdf.cell(0, 6, f"分片 {i} / {len(png_paths)}", new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(2)
+                pdf.image(png, w=page_w)
+                pdf.ln(4)
+        else:
+            pdf.add_page()
+            set_cjk_font(pdf, "B", 12)
+            pdf.multi_cell(
+                0,
+                8,
+                "未生成 ER 图片：服务器未安装 mermaid-cli (mmdc)。"
+                "请重新构建镜像，或使用 format=markdown 获取可渲染的 Mermaid 文件。",
+            )
 
-    pdf_bytes = pdf.output()
+        pdf_bytes = pdf.output()
+        if isinstance(pdf_bytes, str):
+            pdf_bytes = pdf_bytes.encode("latin-1")
 
     with open(save_path, 'wb') as f:
         f.write(pdf_bytes)

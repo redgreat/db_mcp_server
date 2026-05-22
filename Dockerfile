@@ -23,9 +23,15 @@ RUN npm run build
 # 阶段二：Python 运行时
 FROM python:3.13-slim
 
-# supervisor + 中文字体（PDF 导出 ER/数据字典等）
+# supervisor + 中文字体 + Chromium（Mermaid 渲染 ER 图）
 RUN apt-get update && \
-    apt-get install -y supervisor fonts-noto-cjk fontconfig && \
+    apt-get install -y supervisor fonts-noto-cjk fontconfig curl chromium && \
+    rm -rf /var/lib/apt/lists/*
+
+# Mermaid CLI：将 erDiagram 渲染为 PNG 嵌入 PDF
+RUN apt-get update && \
+    apt-get install -y nodejs npm && \
+    npm install -g @mermaid-js/mermaid-cli@11 && \
     rm -rf /var/lib/apt/lists/*
 
 # 创建非root用户
@@ -39,6 +45,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # 复制项目文件
 COPY . /app
+
+# 内置 Noto Sans SC（.otf，避免 fpdf2 直接使用 .ttc 乱码）
+RUN mkdir -p /app/src/static/fonts && \
+    curl -fsSL -o /app/src/static/fonts/NotoSansSC-Regular.otf \
+      "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
 
 # 复制前端构建产物（覆盖 src/static）
 COPY --from=frontend-builder /app/src/static /app/src/static

@@ -287,83 +287,54 @@ def export_dataflow_report_pdf(
     eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """生成 PDF 格式的数据流报告，返回 base64 编码的 PDF 内容"""
-    from fpdf import FPDF
-    from .db_doc_tool import _find_cjk_font
     import os
+    import tempfile
+    from fpdf import FPDF
+    from pathlib import Path
+
+    from .pdf_cjk import register_cjk_fonts, set_cjk_font, write_markdownish_lines
+    from .mermaid_render import mmdc_available, render_mermaid_to_png
 
     logger = logging.getLogger(__name__)
 
-    # 生成内容
     mermaid_data = generate_dataflow_mermaid(eng, database, db_type)
     text_desc = generate_dataflow_description(eng, database, db_type)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_dataflow_{database}_{timestamp}.pdf"
 
-    # 获取通用的下载目录
-    from pathlib import Path
     downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
     save_path = str(downloads_dir / filename)
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    png_path: Optional[str] = None
+    with tempfile.TemporaryDirectory(prefix="flow_mmd_") as tmp:
+        if mmdc_available():
+            candidate = os.path.join(tmp, "dataflow.png")
+            if render_mermaid_to_png(mermaid_data["mermaid"], candidate):
+                png_path = candidate
 
-    # 查找并注册中文字体
-    has_cjk_font = False
-    font_path = _find_cjk_font()
-    if font_path:
-        try:
-            pdf.add_font("CJK", "", font_path, uni=True)
-            pdf.add_font("CJKb", "", font_path, uni=True)
-            has_cjk_font = True
-        except Exception as e:
-            logger.warning(f"加载中文字体失败: {e}")
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=12)
+        register_cjk_fonts(pdf)
+        pdf.add_page()
 
-    if not has_cjk_font:
-        raise RuntimeError("未找到可用的中文字体，无法生成 PDF。")
+        set_cjk_font(pdf, "B", 18)
+        pdf.cell(0, 12, f"数据库数据流报告 — {database}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+        write_markdownish_lines(pdf, text_desc)
 
-    pdf.add_page()
+        if png_path:
+            pdf.add_page()
+            set_cjk_font(pdf, "B", 14)
+            pdf.cell(0, 10, "数据流关系图", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(4)
+            page_w = pdf.w - pdf.l_margin - pdf.r_margin
+            pdf.image(png_path, w=page_w)
 
-    def set_font(style="", size=10):
-        if "B" in style.upper():
-            pdf.set_font("CJKb", "", size + 1)
-        else:
-            pdf.set_font("CJK", "", size)
-
-    # 绘制标题和说明
-    set_font("B", 18)
-    pdf.cell(0, 12, f"数据库数据流报告 — {database}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
-
-    # 绘制文字描述部分
-    for line in text_desc.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            continue
-        elif stripped.startswith("## "):
-            set_font("B", 14)
-            pdf.ln(5)
-            pdf.cell(0, 10, stripped[3:], new_x="LMARGIN", new_y="NEXT")
-        elif stripped.startswith("- "):
-            set_font("", 9)
-            pdf.cell(0, 6, f"  {stripped}", new_x="LMARGIN", new_y="NEXT")
-        elif stripped:
-            set_font("", 9)
-            pdf.multi_cell(0, 6, stripped)
-            pdf.ln(2)
-
-    # 绘制 Mermaid 源码部分
-    pdf.add_page()
-    set_font("B", 14)
-    pdf.cell(0, 10, "Mermaid 数据流图源码 (可在支持 Mermaid 的编辑器中渲染)", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(2)
-
-    pdf.set_fill_color(240, 240, 240)
-    set_font("", 8)
-    pdf.multi_cell(0, 5, mermaid_data["mermaid"], border=1, fill=True)
-
-    pdf_bytes = pdf.output()
+        pdf_bytes = pdf.output()
+        if isinstance(pdf_bytes, str):
+            pdf_bytes = pdf_bytes.encode("latin-1")
 
     with open(save_path, 'wb') as f:
         f.write(pdf_bytes)

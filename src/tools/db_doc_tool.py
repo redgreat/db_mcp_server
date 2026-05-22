@@ -379,18 +379,19 @@ def _find_cjk_font() -> Optional[str]:
 
     logger = logging.getLogger(__name__)
 
-    # 按优先级排列的中文字体文件
+    # 优先 .ttf/.otf（fpdf2 对 .ttc 需 collection_font_number，易乱码）
     cjk_font_names = [
-        "simhei.ttf",           # 黑体
-        "simsun.ttc",           # 宋体
-        "msyh.ttc",             # 微软雅黑
-        "msyh.ttf",             # 微软雅黑 (ttf版)
-        "msyhbd.ttc",           # 微软雅黑粗体
-        "NotoSansCJKsc-Regular.ttf",   # Noto Sans CJK
-        "NotoSansSC-Regular.ttf",      # Noto Sans SC
-        "wqy-microhei.ttc",            # 文泉驿微米黑
-        "wqy-zenhei.ttc",              # 文泉驿正黑
-        "DroidSansFallbackFull.ttf",   # Droid Sans Fallback
+        "NotoSansSC-Regular.ttf",
+        "NotoSansSC-Regular.otf",
+        "NotoSansCJKsc-Regular.ttf",
+        "NotoSansCJKsc-Regular.otf",
+        "simhei.ttf",
+        "msyh.ttf",
+        "DroidSansFallbackFull.ttf",
+        "simsun.ttc",
+        "msyh.ttc",
+        "wqy-microhei.ttc",
+        "wqy-zenhei.ttc",
     ]
 
     # 系统字体目录
@@ -443,16 +444,30 @@ def _find_cjk_font() -> Optional[str]:
                         logger.info(f"找到中文字体: {font_path}")
                         return font_path
                 # Debian fonts-noto-cjk 等包常见文件名
-                for fname in files:
+                for fname in sorted(files):
                     lower = fname.lower()
-                    if lower.endswith((".ttf", ".ttc", ".otf")) and (
-                        "notosanscjk" in lower
-                        or "notosanssc" in lower
+                    if not lower.endswith((".ttf", ".otf")):
+                        continue
+                    if (
+                        "notosanssc" in lower
+                        or "notosanscjk" in lower
                         or "wqy" in lower
                         or "droidsansfallback" in lower
+                        or "simhei" in lower
+                        or "msyh" in lower
                     ):
                         font_path = os.path.join(root, fname)
                         logger.info(f"找到中文字体: {font_path}")
+                        return font_path
+                for fname in sorted(files):
+                    lower = fname.lower()
+                    if lower.endswith(".ttc") and (
+                        "notosans" in lower or "wqy" in lower
+                    ):
+                        font_path = os.path.join(root, fname)
+                        logger.warning(
+                            "使用 TTC 字体（若 PDF 乱码请改用 .ttf）: %s", font_path
+                        )
                         return font_path
 
     logger.warning("未找到系统中文字体，PDF 可能无法显示中文")
@@ -483,33 +498,13 @@ def export_db_doc_pdf(
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    # 查找并注册中文字体
-    has_cjk_font = False
-    font_path = _find_cjk_font()
-    if font_path:
-        try:
-            pdf.add_font("CJK", "", font_path, uni=True)
-            pdf.add_font("CJKb", "", font_path, uni=True)
-            has_cjk_font = True
-            logger.info(f"已加载中文字体: {font_path}")
-        except Exception as e:
-            logger.warning(f"加载中文字体失败: {e}，将尝试回退方案")
-            has_cjk_font = False
+    from .pdf_cjk import register_cjk_fonts, set_cjk_font, write_markdownish_lines
 
-    if not has_cjk_font:
-        raise RuntimeError(
-            "未找到可用的中文字体，无法生成包含中文的 PDF。"
-            "请安装中文字体（如 SimHei、SimSun、微软雅黑）或将 .ttf 字体文件放入 src/static/fonts/ 目录。"
-        )
-
+    register_cjk_fonts(pdf)
     pdf.add_page()
 
     def set_font(style="", size=10):
-        """设置字体，CJK 字体用 CJKb 模拟粗体"""
-        if "B" in style.upper():
-            pdf.set_font("CJKb", "", size + 1)
-        else:
-            pdf.set_font("CJK", "", size)
+        set_cjk_font(pdf, style, size)
 
     for line in md_content.split("\n"):
         stripped = line.strip()
