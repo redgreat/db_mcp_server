@@ -102,7 +102,7 @@
 	<div class="mb-6">
 		<h1 class="text-2xl font-bold tracking-tight">大模型配置</h1>
 		<p class="text-sm text-base-content/50 mt-1">
-			配置并激活一个提供商后，ER 分析、SQL 审查、性能诊断等工具将统一通过该模型调用。
+			全局同一时间只能<strong>激活一个</strong>提供商；切换后其它配置自动停用。激活并填写 API Key 后，ER / SQL / 性能等工具统一走该模型。
 		</p>
 	</div>
 
@@ -111,10 +111,10 @@
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</div>
 	{:else}
-		<div class="overflow-x-auto">
-			<table class="table table-zebra table-sm">
+		<div class="table-admin-wrap overflow-x-auto">
+			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
-					<tr class="text-xs text-base-content/60">
+					<tr>
 						<th>提供商</th>
 						<th>Base URL</th>
 						<th>默认模型</th>
@@ -127,10 +127,12 @@
 					{#each configs as config}
 						<tr class="hover">
 							<td class="font-medium text-sm">{providerLabel(config.provider)}</td>
-							<td class="text-xs font-mono max-w-[240px] truncate" title={config.base_url || ''}>
-								{config.base_url || '—'}
+							<td class="text-xs font-mono">
+								<span class="admin-cell-tip max-w-[240px]" title={config.base_url || ''}>{config.base_url || '—'}</span>
 							</td>
-							<td class="text-xs font-mono">{config.model_name || '—'}</td>
+							<td class="text-xs font-mono">
+								<span class="admin-cell-tip max-w-[12rem]" title={config.model_name || ''}>{config.model_name || '—'}</span>
+							</td>
 							<td>
 								<div class="flex items-center gap-1.5">
 									<div
@@ -149,16 +151,19 @@
 								{/if}
 							</td>
 							<td>
-								<div class="flex justify-end gap-1">
-									<button class="btn btn-xs btn-ghost" onclick={() => openEdit(config)}>编辑</button>
+								<div class="flex justify-end gap-1.5">
+									<button type="button" class="btn btn-row-action btn-edit" onclick={() => openEdit(config)}>编辑</button>
 									{#if !config.is_active}
 										<button
-											class="btn btn-xs btn-primary"
+											type="button"
+											class="btn btn-row-action btn-edit"
 											disabled={!config.has_api_key}
 											onclick={() => activateConfig(config.id)}
 										>
 											激活
 										</button>
+									{:else}
+										<span class="text-xs text-success px-2">当前使用</span>
 									{/if}
 								</div>
 							</td>

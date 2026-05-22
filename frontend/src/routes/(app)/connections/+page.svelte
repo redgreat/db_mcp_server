@@ -6,8 +6,10 @@
 <script lang="ts">
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
-	import { dbTypeColor, formatDate, truncate } from '$lib/utils';
+	import { dbTypeColor, formatDate } from '$lib/utils';
+	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import CellTip from '$lib/components/CellTip.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
@@ -27,7 +29,7 @@
 	let connections = $state<Connection[]>([]);
 	let total = $state(0);
 	let page = $state(1);
-	const pageSize = 10;
+	const pageSize = LIST_PAGE_SIZE;
 	let loading = $state(false);
 
 	let showConnModal = $state(false);
@@ -228,10 +230,10 @@
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</div>
 	{:else}
-		<div class="overflow-x-auto rounded-lg border border-base-300">
-			<table class="table table-zebra table-sm">
+		<div class="table-admin-wrap overflow-x-auto">
+			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
-					<tr class="text-base-content/60">
+					<tr>
 						<th class="w-14">ID</th>
 						<th>名称</th>
 						<th>类型</th>
@@ -251,32 +253,30 @@
 					{#each connections as conn}
 						<tr class="hover">
 							<td class="text-base-content/50 font-mono text-xs">{conn.id}</td>
-							<td class="font-medium max-w-[10rem] truncate" title={conn.name}>{conn.name}</td>
+							<td class="font-medium"><CellTip value={conn.name} maxWidth="max-w-[10rem]" /></td>
 							<td>
 								<span class="badge badge-sm {dbTypeColor(conn.db_type)}">{conn.db_type}</span>
 							</td>
-							<td class="font-mono text-xs max-w-[12rem] truncate" title={conn.host}>
-								{truncate(conn.host, 36)}
-							</td>
+							<td class="font-mono text-xs"><CellTip value={conn.host} maxWidth="max-w-[14rem]" /></td>
 							<td class="font-mono text-xs">{conn.port}</td>
-							<td class="font-mono text-xs max-w-[8rem] truncate" title={conn.database}>{conn.database}</td>
-							<td class="text-xs">{conn.username}</td>
+							<td class="font-mono text-xs"><CellTip value={conn.database} maxWidth="max-w-[8rem]" /></td>
+							<td class="text-xs"><CellTip value={conn.username} maxWidth="max-w-[8rem]" /></td>
 							<td class="text-xs text-base-content/50">已加密</td>
-							<td class="text-xs text-base-content/50 max-w-[8rem] truncate" title={conn.description || ''}>
-								{conn.description || '-'}
+							<td class="text-xs text-base-content/50">
+								<CellTip value={conn.description || '—'} maxWidth="max-w-[8rem]" />
 							</td>
 							<td class="text-xs text-base-content/50 whitespace-nowrap">{formatDate(conn.created_at)}</td>
 							{#if authStore.isAdmin}
 								<td>
-									<div class="flex justify-end gap-1 flex-nowrap">
+									<div class="flex justify-end gap-1.5 flex-nowrap">
 										<button
 											type="button"
-											class="btn btn-xs btn-ghost"
+											class="btn btn-row-action btn-edit"
 											onclick={() => openEditModal(conn)}
 										>编辑</button>
 										<button
 											type="button"
-											class="btn btn-xs btn-ghost text-error"
+											class="btn btn-row-action btn-danger"
 											onclick={() => openDeleteConfirm(conn)}
 										>删除</button>
 									</div>
@@ -298,9 +298,7 @@
 				</tbody>
 			</table>
 		</div>
-		{#if connections.length > 0}
-			<Pagination {total} {page} {pageSize} onchange={load} />
-		{/if}
+		<Pagination {total} {page} {pageSize} onchange={load} />
 	{/if}
 </div>
 

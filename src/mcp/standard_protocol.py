@@ -309,16 +309,57 @@ async def execute_mcp_tool(
     data_masker
 ) -> Any:
     """执行 MCP 工具"""
+    from ..admin.schema_cache import get_admin_tables
+    from ..ai.context import llm_log_context
+
+    tbl = get_admin_tables(admin_engine)
+    raw_cid = arguments.get("connection_id")
+    try:
+        cid = int(raw_cid) if raw_cid is not None else None
+    except (TypeError, ValueError):
+        cid = None
+
+    with llm_log_context(
+        access_key=access_key,
+        call_source="mcp",
+        tool_name=tool_name,
+        connection_id=cid,
+    ):
+        return await _execute_mcp_tool_inner(
+            tool_name,
+            arguments,
+            access_key,
+            client_ip,
+            cfg,
+            qp,
+            admin_engine,
+            audit_logger,
+            data_masker,
+            tbl,
+            raw_cid,
+        )
+
+
+async def _execute_mcp_tool_inner(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    access_key: str,
+    client_ip: Optional[str],
+    cfg,
+    qp,
+    admin_engine,
+    audit_logger,
+    data_masker,
+    tbl,
+    connection_id,
+) -> Any:
     import time
     from sqlalchemy import select, text, or_
     from sqlalchemy.orm import Session
-    from ..admin.schema_cache import get_admin_tables
     from ..security.secret import decrypt_text
     from ..security.interceptor import intercept_sql
 
-    tbl = get_admin_tables(admin_engine)
     start_time = time.time()
-    connection_id = arguments.get("connection_id")
 
     # 1. 特殊处理 list_connections，因为它不需要 connection_id
     if tool_name == "list_connections":

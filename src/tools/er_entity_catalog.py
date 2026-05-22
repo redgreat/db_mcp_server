@@ -416,6 +416,8 @@ def llm_er_business_insights(catalog: Dict[str, Any], *, max_domains: int = 12) 
         "不要逐表罗列，不要编造不存在的表名。"
     )
     try:
-        return (llm_ask(system_prompt, user_prompt) or "").strip()
+        return (
+            llm_ask(system_prompt, user_prompt, tool_name="er_business_insights") or ""
+        ).strip()
     except Exception:
         return ""

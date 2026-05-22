@@ -265,7 +265,9 @@ def analyze_sql(eng: Engine, database: str, sql: str, db_type: str = "mysql") ->
             user_prompt += f"**表 {tbl}**:\n```json\n{idxs}\n```\n"
         user_prompt += f"\n### EXPLAIN 执行计划\n```json\n{result['explain_plan']}\n```\n"
         try:
-            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(
+                system_prompt, user_prompt, tool_name="analyze_sql"
+            )
             result["ai_assessment"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
             result["overall_assessment"] = "🌟 [AI 智能审查开启] 已由大模型深度分析，请参阅 ai_assessment。"

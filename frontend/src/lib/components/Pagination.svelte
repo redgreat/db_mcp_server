@@ -14,7 +14,7 @@
 	const totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)));
 </script>
 
-{#if total > pageSize}
+{#if total > 0}
 	<div class="admin-pagination-meta flex items-center justify-between gap-4 mt-4 flex-wrap">
 		<p class="text-base-content/60">
 			共 <span class="font-medium text-base-content">{total}</span> 条，第

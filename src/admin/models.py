@@ -158,6 +158,28 @@ def ensure_schema(engine: Engine):
         Column("updated_at", DateTime(timezone=True), onupdate=func.now(), comment="最后更新时间"),
     )
 
+    # 大模型调用日志（Token 消耗、访问密钥、调用来源）
+    Table(
+        "llm_call_logs", meta,
+        Column("id", BigInteger, primary_key=True, comment="日志ID"),
+        Column("timestamp", DateTime(timezone=True), server_default=func.now(), index=True, comment="调用时间"),
+        Column("llm_config_id", Integer, ForeignKey("llm_configs.id", ondelete="SET NULL"),
+               nullable=True, index=True, comment="当时激活的配置ID"),
+        Column("provider", String(50), nullable=False, index=True, comment="提供商"),
+        Column("model_name", String(100), nullable=False, comment="模型名称"),
+        Column("access_key", String(128), nullable=True, index=True, comment="MCP 访问密钥(若有)"),
+        Column("call_source", String(64), nullable=False, server_default="internal",
+               index=True, comment="调用来源: mcp / tool / internal"),
+        Column("tool_name", String(100), nullable=True, index=True, comment="工具名或 MCP 方法"),
+        Column("connection_id", Integer, nullable=True, index=True, comment="关联的数据库连接ID"),
+        Column("prompt_tokens", Integer, nullable=False, server_default="0", comment="输入 Token"),
+        Column("completion_tokens", Integer, nullable=False, server_default="0", comment="输出 Token"),
+        Column("total_tokens", Integer, nullable=False, server_default="0", index=True, comment="总 Token"),
+        Column("duration_ms", Integer, nullable=True, comment="调用耗时(毫秒)"),
+        Column("status", String(20), nullable=False, index=True, comment="success / error"),
+        Column("error_message", Text, nullable=True, comment="失败原因"),
+    )
+
     # 创建所有表
     meta.create_all(engine)
 

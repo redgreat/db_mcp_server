@@ -341,7 +341,9 @@ def generate_performance_report(eng: Engine, database: str, db_type: str = "mysq
         user_prompt += f"慢查询 Top5：{json.dumps(slow_queries[:5], ensure_ascii=False)}\n"
         user_prompt += f"部分表统计：{json.dumps(table_stats[:5], ensure_ascii=False)}\n"
         try:
-            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(
+                system_prompt, user_prompt, tool_name="analyze_db_performance"
+            )
             result["ai_analysis"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
         except Exception as e:

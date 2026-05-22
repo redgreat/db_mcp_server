@@ -17,6 +17,7 @@ ADMIN_TABLE_NAMES = (
     "sessions",
     "db_rules",
     "llm_configs",
+    "llm_call_logs",
 )
 
 

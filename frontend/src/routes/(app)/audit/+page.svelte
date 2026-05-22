@@ -5,8 +5,10 @@
 -->
 <script lang="ts">
 	import { api } from '$lib/api';
-	import { formatDate, truncate } from '$lib/utils';
+	import { formatDate } from '$lib/utils';
+	import { LOG_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import CellTip from '$lib/components/CellTip.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
 	type LogTab = 'audit' | 'system';
@@ -53,7 +55,7 @@
 	let sysFilterOp = $state('');
 	let sysFilterResource = $state('');
 
-	const pageSize = 20;
+	const pageSize = LOG_PAGE_SIZE;
 
 	async function loadAudit(p = 1) {
 		auditLoading = true;
@@ -149,10 +151,10 @@
 				<span class="loading loading-spinner loading-md text-primary"></span>
 			</div>
 		{:else}
-			<div class="overflow-x-auto">
-				<table class="table table-zebra table-sm">
+			<div class="table-admin-wrap overflow-x-auto">
+				<table class="table table-zebra table-sm table-admin w-full">
 					<thead>
-						<tr class="text-xs text-base-content/60">
+						<tr>
 							<th>时间</th>
 							<th>访问密钥</th>
 							<th>客户端 IP</th>
@@ -167,15 +169,13 @@
 						{#each auditLogs as log}
 							<tr class="hover">
 								<td class="text-xs text-base-content/60 whitespace-nowrap">{formatDate(log.timestamp)}</td>
-								<td><code class="text-xs">{truncate(log.access_key, 20)}</code></td>
+								<td><CellTip value={log.access_key} class="font-mono text-xs" maxWidth="max-w-[10rem]" /></td>
 								<td class="text-xs font-mono">{log.client_ip || '-'}</td>
 								<td>
 									<span class="badge badge-ghost badge-xs">{log.operation}</span>
 								</td>
 								<td>
-									<div class="tooltip tooltip-bottom" data-tip={log.sql_text || ''}>
-										<code class="text-xs text-base-content/70">{truncate(log.sql_text, 40)}</code>
-									</div>
+									<CellTip value={log.sql_text || '—'} class="font-mono text-xs text-base-content/70" maxWidth="max-w-[16rem]" />
 								</td>
 								<td class="text-right text-xs">{log.rows_affected ?? '-'}</td>
 								<td class="text-right text-xs">{log.duration_ms}ms</td>
@@ -237,10 +237,10 @@
 				<span class="loading loading-spinner loading-md text-primary"></span>
 			</div>
 		{:else}
-			<div class="overflow-x-auto">
-				<table class="table table-zebra table-sm">
+			<div class="table-admin-wrap overflow-x-auto">
+				<table class="table table-zebra table-sm table-admin w-full">
 					<thead>
-						<tr class="text-xs text-base-content/60">
+						<tr>
 							<th>时间</th>
 							<th>操作人</th>
 							<th>操作类型</th>
@@ -259,9 +259,11 @@
 								<td class="text-xs">{log.resource_type}</td>
 								<td class="text-xs text-base-content/60">{log.resource_id ?? '-'}</td>
 								<td>
-									<div class="tooltip tooltip-bottom" data-tip={JSON.stringify(log.details || {})}>
-										<code class="text-xs text-base-content/60">{truncate(JSON.stringify(log.details || {}), 45)}</code>
-									</div>
+									<CellTip
+										value={JSON.stringify(log.details || {})}
+										class="font-mono text-xs text-base-content/60"
+										maxWidth="max-w-[14rem]"
+									/>
 								</td>
 								<td class="text-xs font-mono">{log.client_ip || '-'}</td>
 							</tr>

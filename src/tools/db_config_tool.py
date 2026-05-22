@@ -457,7 +457,9 @@ def analyze_db_config(eng: Engine, db_type: str = "mysql") -> Dict[str, Any]:
         user_prompt += f"当前配置：{json.dumps(config_data, ensure_ascii=False)[:3000]}\n...\n"
         user_prompt += f"运行状态：{json.dumps(status_data, ensure_ascii=False)[:3000]}\n...\n"
         try:
-            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(
+                system_prompt, user_prompt, tool_name="analyze_db_config"
+            )
             result["ai_analysis"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
         except Exception as e:

@@ -8,7 +8,9 @@
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
 	import { formatDate } from '$lib/utils';
+	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import CellTip from '$lib/components/CellTip.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { onMount } from 'svelte';
@@ -25,7 +27,7 @@
 	let users = $state<AdminUser[]>([]);
 	let total = $state(0);
 	let page = $state(1);
-	const pageSize = 10;
+	const pageSize = LIST_PAGE_SIZE;
 	let loading = $state(false);
 
 	// 创建用户
@@ -176,10 +178,10 @@
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</div>
 	{:else}
-		<div class="overflow-x-auto">
-			<table class="table table-zebra table-sm">
+		<div class="table-admin-wrap overflow-x-auto">
+			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
-					<tr class="text-xs text-base-content/60">
+					<tr>
 						<th>用户名</th>
 						<th>邮箱</th>
 						<th>角色</th>
@@ -199,7 +201,9 @@
 									<span class="font-medium text-sm">{u.username}</span>
 								</div>
 							</td>
-							<td class="text-xs text-base-content/60">{u.email || '-'}</td>
+							<td class="text-xs text-base-content/60">
+								<CellTip value={u.email || '—'} maxWidth="max-w-[12rem]" />
+							</td>
 							<td>
 								<span class="badge badge-sm {u.role === 'admin' ? 'badge-error' : 'badge-info'}">
 									{u.role === 'admin' ? '管理员' : '普通用户'}
@@ -215,11 +219,12 @@
 							</td>
 							<td class="text-xs text-base-content/50">{formatDate(u.created_at)}</td>
 							<td>
-								<div class="flex justify-end gap-1">
-									<button class="btn btn-xs btn-ghost" onclick={() => openEdit(u)}>编辑</button>
-									<button class="btn btn-xs btn-ghost text-warning" onclick={() => openReset(u)}>重置密码</button>
+								<div class="flex justify-end gap-1.5">
+									<button type="button" class="btn btn-row-action btn-edit" onclick={() => openEdit(u)}>编辑</button>
+									<button type="button" class="btn btn-row-action btn-edit" onclick={() => openReset(u)}>重置密码</button>
 									<button
-										class="btn btn-xs btn-ghost text-error"
+										type="button"
+										class="btn btn-row-action btn-danger"
 										disabled={u.id === authStore.user?.id}
 										onclick={() => (deleteUserId = u.id)}
 									>删除</button>

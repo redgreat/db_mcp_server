@@ -68,7 +68,10 @@ def build_admin_router(cfg: Config):
     engine = create_engine(admin_db_url, pool_pre_ping=True)
     ensure_schema(engine)
     from .schema_cache import get_admin_tables
+    from .llm_active import ensure_single_llm_active
+
     tbl = get_admin_tables(engine)
+    ensure_single_llm_active(engine)
 
     # 认证服务
     auth_service = AuthService(
@@ -473,16 +476,126 @@ def build_admin_router(cfg: Config):
             existing = session.execute(select(llm_configs).where(llm_configs.c.id == config_id)).mappings().first()
             if not existing:
                 raise HTTPException(status_code=404, detail="配置不存在")
+            if not existing.get("api_key_enc"):
+                raise HTTPException(status_code=400, detail="请先配置 API Key 后再激活")
 
             session.execute(update(llm_configs).values(is_active=False))
             # 激活指定的配置
             session.execute(update(llm_configs).where(llm_configs.c.id == config_id).values(is_active=True))
             session.commit()
 
+        ensure_single_llm_active(engine)
         from ..ai.service import reset_llm_client
         reset_llm_client()
 
         return {"ok": True, "message": f"已激活配置: {existing['provider']}"}
+
+    @router.get("/admin/llm_call_logs")
+    def list_llm_call_logs(
+        page: int = 1,
+        page_size: int = 10,
+        access_key: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        authorization: str = Header(None),
+    ):
+        """大模型调用明细（分页）"""
+        auth_service.require_admin(authorization)
+        page = max(1, page)
+        page_size = min(max(1, page_size), 100)
+        offset = (page - 1) * page_size
+
+        from sqlalchemy import desc, func
+        from datetime import datetime
+
+        logs = tbl["llm_call_logs"]
+        with Session(engine) as s:
+            q = select(logs)
+            if access_key:
+                q = q.where(logs.c.access_key.ilike(f"%{access_key}%"))
+            if date_from:
+                try:
+                    dt = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+                    q = q.where(logs.c.timestamp >= dt)
+                except ValueError:
+                    pass
+            if date_to:
+                try:
+                    dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+                    q = q.where(logs.c.timestamp <= dt)
+                except ValueError:
+                    pass
+
+            count_stmt = select(func.count()).select_from(logs)
+            if access_key:
+                count_stmt = count_stmt.where(logs.c.access_key.ilike(f"%{access_key}%"))
+            if date_from:
+                try:
+                    dt = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+                    count_stmt = count_stmt.where(logs.c.timestamp >= dt)
+                except ValueError:
+                    pass
+            if date_to:
+                try:
+                    dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+                    count_stmt = count_stmt.where(logs.c.timestamp <= dt)
+                except ValueError:
+                    pass
+            total = s.execute(count_stmt).scalar() or 0
+            rows = s.execute(
+                q.order_by(desc(logs.c.timestamp)).offset(offset).limit(page_size)
+            ).mappings().all()
+
+        return {
+            "items": [serialize_row(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    @router.get("/admin/llm_call_logs/daily")
+    def list_llm_call_logs_daily(
+        days: int = 14,
+        authorization: str = Header(None),
+    ):
+        """按日汇总 Token 消耗（可按访问密钥、提供商分组）"""
+        auth_service.require_admin(authorization)
+        days = min(max(1, days), 90)
+
+        from sqlalchemy import func, cast, Date
+        from datetime import timedelta
+        from ..timezone_util import now_app
+
+        logs = tbl["llm_call_logs"]
+        since = now_app() - timedelta(days=days)
+
+        with Session(engine) as s:
+            day_col = cast(func.date_trunc("day", logs.c.timestamp), Date).label("day")
+            stmt = (
+                select(
+                    day_col,
+                    logs.c.access_key,
+                    logs.c.provider,
+                    logs.c.model_name,
+                    func.count().label("call_count"),
+                    func.coalesce(func.sum(logs.c.prompt_tokens), 0).label("prompt_tokens"),
+                    func.coalesce(func.sum(logs.c.completion_tokens), 0).label("completion_tokens"),
+                    func.coalesce(func.sum(logs.c.total_tokens), 0).label("total_tokens"),
+                )
+                .where(logs.c.timestamp >= since)
+                .group_by(day_col, logs.c.access_key, logs.c.provider, logs.c.model_name)
+                .order_by(day_col.desc(), func.sum(logs.c.total_tokens).desc())
+            )
+            rows = s.execute(stmt).mappings().all()
+
+        items = []
+        for r in rows:
+            item = serialize_row(r)
+            if item.get("day"):
+                item["day"] = str(item["day"])[:10]
+            items.append(item)
+
+        return {"items": items, "days": days}
 
     # ==================== 首页 ====================
 

@@ -27,10 +27,16 @@ class LLMClient:
     def _get_active_config(self):
         from ..admin.schema_cache import get_admin_tables
 
+        from ..admin.llm_active import ensure_single_llm_active
+
+        ensure_single_llm_active(self.engine)
         llm_configs = get_admin_tables(self.engine)["llm_configs"]
         with Session(self.engine) as session:
             row = session.execute(
-                select(llm_configs).where(llm_configs.c.is_active == True)  # noqa: E712
+                select(llm_configs)
+                .where(llm_configs.c.is_active == True)  # noqa: E712
+                .order_by(llm_configs.c.id)
+                .limit(1)
             ).mappings().first()
             return dict(row) if row else None
 

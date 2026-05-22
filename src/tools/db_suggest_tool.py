@@ -195,7 +195,9 @@ def suggest_columns(eng: Engine, database: str, table: str, db_type: str = "mysq
         )
         user_prompt = f"表名: {table}\n现有字段:\n```json\n{json.dumps(info['columns'], ensure_ascii=False, indent=2)}\n```"
         try:
-            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(
+                system_prompt, user_prompt, tool_name="suggest_table_columns"
+            )
             result["ai_suggestions"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
         except Exception as e:

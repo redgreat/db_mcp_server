@@ -7,7 +7,9 @@
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
 	import { formatDate, truncate } from '$lib/utils';
+	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import CellTip from '$lib/components/CellTip.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
@@ -57,7 +59,7 @@
 	let keyUsersMap = $state<Record<number, KeyUser[]>>({});
 	let total = $state(0);
 	let page = $state(1);
-	const pageSize = 10;
+	const pageSize = LIST_PAGE_SIZE;
 	let loading = $state(false);
 
 	// 创建密钥
@@ -329,10 +331,10 @@
 			<p class="text-sm">暂无访问密钥</p>
 		</div>
 	{:else}
-		<div class="overflow-x-auto">
-			<table class="table table-zebra table-sm">
+		<div class="table-admin-wrap overflow-x-auto">
+			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
-					<tr class="text-base-content/60 text-xs">
+					<tr>
 						<th>密钥 (AK)</th>
 						<th>描述</th>
 						<th>状态</th>
@@ -351,9 +353,11 @@
 					{#each keys as key}
 						<tr class="hover">
 							<td>
-								<code class="text-xs bg-base-300 px-2 py-0.5 rounded font-mono">{key.ak}</code>
+								<CellTip value={key.ak} class="font-mono text-xs" maxWidth="max-w-[12rem]" />
 							</td>
-							<td class="text-base-content/60 text-xs max-w-32 truncate">{key.description || '-'}</td>
+							<td class="text-base-content/60 text-xs">
+								<CellTip value={key.description || '—'} maxWidth="max-w-[10rem]" />
+							</td>
 							<td>
 								<div class="flex items-center gap-2">
 									<div class="w-1.5 h-1.5 rounded-full {key.enabled ? 'bg-success pulse-dot' : 'bg-error'}"></div>
