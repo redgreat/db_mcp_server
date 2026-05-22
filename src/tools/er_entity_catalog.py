@@ -338,7 +338,7 @@ def generate_mermaid_parts_by_domain(
                 for fk in fks
                 if fk["from_table"] in chunk and fk["to_table"] in chunk
             ]
-            part = _mermaid_from_subset(sub_cols, sub_fks, include_implicit)
+            part = _mermaid_from_subset(sub_cols, sub_fks, include_implicit, ascii_labels=True)
             if part:
                 label = _domain_label(domain)
                 header = f"%% 业务域: {label} ({domain}) 第{i // max_tables_per_part + 1}片\n"
@@ -352,6 +352,8 @@ def _mermaid_from_subset(
     table_columns: Dict[str, List[Dict]],
     fks: List[Dict],
     include_implicit: bool,
+    *,
+    ascii_labels: bool = False,
 ) -> str:
     implicit = (
         analyze_implicit_relationships(table_columns, fks) if include_implicit else []
@@ -373,8 +375,9 @@ def _mermaid_from_subset(
         )
     for rel in implicit:
         if rel["from_table"] in table_columns and rel["to_table"] in table_columns:
+            edge = "implicit" if ascii_labels else "推断"
             lines.append(
-                f'    {safe_name(rel["to_table"])} ||--o{{ {safe_name(rel["from_table"])} : "推断"'
+                f'    {safe_name(rel["to_table"])} ||--o{{ {safe_name(rel["from_table"])} : "{edge}"'
             )
     return "\n".join(lines)
 

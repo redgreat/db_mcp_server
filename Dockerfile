@@ -25,7 +25,7 @@ FROM python:3.13-slim
 
 # supervisor + 中文字体 + Chromium（Mermaid 渲染 ER 图）
 RUN apt-get update && \
-    apt-get install -y supervisor tini fonts-noto-cjk fonts-wqy-microhei fontconfig chromium && \
+    apt-get install -y supervisor tini curl fonts-noto-cjk fonts-wqy-microhei fontconfig chromium && \
     rm -rf /var/lib/apt/lists/*
 
 # Mermaid CLI：将 erDiagram 渲染为 PNG 嵌入 PDF
@@ -49,24 +49,25 @@ COPY . /app
 # 复制前端构建产物（覆盖 src/static）
 COPY --from=frontend-builder /app/src/static /app/src/static
 
-# 中文字体：从 apt 复制到项目目录（不依赖外网下载，避免 GitHub 404）
+# 中文字体：优先内置 Noto Sans SC .otf（fpdf2 用 TTC 易叠字乱码），TTC 仅作兜底
 RUN mkdir -p /app/src/static/fonts && \
     set -e; \
-    DEST=""; \
-    for name in NotoSansCJK-Regular.ttc wqy-microhei.ttc; do \
-      SRC=$(find /usr/share/fonts -type f -iname "$name" 2>/dev/null | head -1); \
-      if [ -n "$SRC" ]; then \
-        cp "$SRC" "/app/src/static/fonts/$name"; \
-        DEST="/app/src/static/fonts/$name"; \
-        break; \
-      fi; \
-    done; \
-    if [ -z "$DEST" ] || [ ! -s "$DEST" ]; then \
-      echo "ERROR: 未找到 fonts-noto-cjk / fonts-wqy-microhei 字体" >&2; \
+    OTF_URL="https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"; \
+    if ! curl -fsSL --retry 3 -o /app/src/static/fonts/NotoSansSC-Regular.otf "$OTF_URL"; then \
+      echo "WARN: OTF 下载失败，尝试从 apt 复制 TTC 兜底" >&2; \
+      for name in NotoSansCJK-Regular.ttc wqy-microhei.ttc; do \
+        SRC=$(find /usr/share/fonts -type f -iname "$name" 2>/dev/null | head -1); \
+        if [ -n "$SRC" ]; then cp "$SRC" "/app/src/static/fonts/$name"; break; fi; \
+      done; \
+    fi; \
+    if [ ! -s /app/src/static/fonts/NotoSansSC-Regular.otf ] && \
+       [ ! -s /app/src/static/fonts/NotoSansCJK-Regular.ttc ] && \
+       [ ! -s /app/src/static/fonts/wqy-microhei.ttc ]; then \
+      echo "ERROR: 未找到可用中文字体" >&2; \
       find /usr/share/fonts -iname '*noto*' -o -iname '*wqy*' 2>/dev/null | head -20 >&2; \
       exit 1; \
     fi; \
-    ls -la /app/src/static/fonts/
+    fc-cache -fv && ls -la /app/src/static/fonts/
 
 # 创建必要的目录并设置权限
 RUN mkdir -p /var/log/db_mcp_server /data/admin && \

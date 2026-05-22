@@ -379,14 +379,14 @@ def _find_cjk_font() -> Optional[str]:
 
     logger = logging.getLogger(__name__)
 
-    # 优先简体 SC 的 .ttf/.otf（TTC 易因 face 索引错误导致 PDF 叠字乱码）
+    # 优先简体 SC 的 .otf/.ttf；TTC 易因 face 索引错误导致 PDF 叠字乱码，放最后
     cjk_font_names = [
-        "NotoSansCJK-Regular.ttc",
-        "wqy-microhei.ttc",
         "NotoSansSC-Regular.otf",
         "NotoSansSC-Regular.ttf",
         "NotoSansCJKsc-Regular.otf",
         "NotoSansCJKsc-Regular.ttf",
+        "wqy-microhei.ttc",
+        "NotoSansCJK-Regular.ttc",
         "simhei.ttf",
         "msyh.ttf",
         "DroidSansFallbackFull.ttf",

@@ -26,10 +26,42 @@ def _strip_md(text: str) -> str:
 
 
 def _ttc_collection_index(font_path: str) -> int:
-    """TTC 内嵌字体索引：Noto Sans CJK 简体一般为 2，文泉驿等为 0。"""
+    """TTC 内嵌字体索引：优先用 fontTools 按名称匹配「SC/简体」，否则回退 0。"""
     base = os.path.basename(font_path).lower()
-    if "notosanscjk" in base or "noto sans cjk" in base.replace("_", " "):
-        return 2
+    if "wqy" in base or "microhei" in base:
+        return 0
+    try:
+        from fontTools.ttLib import TTFont
+
+        for idx in range(8):
+            try:
+                tt = TTFont(font_path, fontNumber=idx)
+            except Exception:
+                break
+            full = ""
+            name_table = tt.get("name")
+            if name_table:
+                for rec in name_table.names:
+                    if rec.nameID in (1, 4):
+                        try:
+                            full = rec.toUnicode() or ""
+                        except Exception:
+                            continue
+                        if full:
+                            break
+            low = full.lower()
+            if any(
+                k in low
+                for k in ("sc", "simplified", "简体", "chn", "hans", "cjk sc")
+            ):
+                logger.info("TTC 选用简体 face #%s: %s (%s)", idx, font_path, full)
+                return idx
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning("TTC face 探测失败，使用索引 0: %s (%s)", font_path, e)
+    if "notosanscjk" in base:
+        logger.warning("未探测到 SC face，NotoSansCJK TTC 回退索引 0: %s", font_path)
     return 0
 
 
@@ -38,11 +70,16 @@ def register_cjk_fonts(pdf: FPDF) -> str:
     font_path = _find_cjk_font()
     if not font_path:
         raise RuntimeError(
-            "未找到可用的中文字体。请确认镜像已安装 fonts-noto-cjk 且 "
-            "src/static/fonts/ 下存在 NotoSansCJK-Regular.ttc"
+            "未找到可用的中文字体。请重新构建镜像，确保 "
+            "src/static/fonts/NotoSansSC-Regular.otf 存在"
         )
 
     lower = font_path.lower()
+    if lower.endswith((".ttc", ".otc")):
+        logger.warning(
+            "PDF 使用 TTC 字体（易出现中文叠字），建议镜像内置 NotoSansSC-Regular.otf: %s",
+            font_path,
+        )
     kwargs: dict = {}
     if lower.endswith(".ttc") or lower.endswith(".otc"):
         idx = _ttc_collection_index(font_path)
@@ -60,6 +97,10 @@ def register_cjk_fonts(pdf: FPDF) -> str:
         raise RuntimeError(f"加载中文字体失败: {font_path}: {e}") from e
 
     logger.info("PDF 中文字体: %s", font_path)
+    try:
+        pdf.set_text_shaping(True)
+    except (AttributeError, TypeError):
+        pass
     return font_path
 
 

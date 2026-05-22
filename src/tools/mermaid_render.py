@@ -20,7 +20,19 @@ _PUPPETEER_CONFIG_JSON = {
         "--disable-dev-shm-usage",
         "--disable-gpu",
         "--font-render-hinting=none",
-    ]
+    ],
+}
+
+# Mermaid 主题：指定 CJK 字体族，避免 Chromium 回退字体导致中文叠字
+_MERMAID_THEME_JSON = {
+    "theme": "default",
+    "themeVariables": {
+        "fontFamily": (
+            "Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, "
+            "sans-serif"
+        ),
+        "fontSize": "14px",
+    },
 }
 
 
@@ -61,6 +73,14 @@ def render_mermaid_to_png(
     puppeteer_path = puppeteer_cfg.name
     puppeteer_cfg.close()
 
+    mermaid_cfg = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    )
+    json.dump(_MERMAID_THEME_JSON, mermaid_cfg, ensure_ascii=False)
+    mermaid_cfg.flush()
+    mermaid_cfg_path = mermaid_cfg.name
+    mermaid_cfg.close()
+
     try:
         cmd = [
             "mmdc",
@@ -76,8 +96,12 @@ def render_mermaid_to_png(
             str(scale),
             "-p",
             puppeteer_path,
+            "-c",
+            mermaid_cfg_path,
         ]
         env = os.environ.copy()
+        env.setdefault("LANG", "zh_CN.UTF-8")
+        env.setdefault("LC_ALL", "zh_CN.UTF-8")
         # Docker / Linux 下指定 Chromium 可执行文件（若存在）
         for chrome in (
             "/usr/bin/chromium",
@@ -115,7 +139,7 @@ def render_mermaid_to_png(
         logger.error("mmdc 异常: %s", e)
         return False
     finally:
-        for p in (mmd_path, puppeteer_path):
+        for p in (mmd_path, puppeteer_path, mermaid_cfg_path):
             try:
                 os.unlink(p)
             except OSError:

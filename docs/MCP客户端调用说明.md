@@ -59,7 +59,7 @@ python script/mcp_call.py --http --base https://mcp.wongcw.cn \
 
 ## PDF ER 图说明
 
-- 中文乱码：需镜像内含 **NotoSansSC .ttf/.otf**（见 `src/static/fonts/`），勿仅用 `.ttc`
+- 中文乱码/叠字：镜像须内置 **NotoSansSC-Regular.otf**（`Dockerfile` 构建时下载）；勿优先用 `.ttc`（fpdf2 易错 face 索引）。部署后日志应出现 `PDF 中文字体: ...NotoSansSC-Regular.otf`
 - ER **图形**：需镜像安装 **mermaid-cli (`mmdc`)** + Chromium，PDF 内为 PNG 分片图，不是 Mermaid 源码堆砌
 - 表特别多（如 400+）会按约 40 张表一张图分片
 
