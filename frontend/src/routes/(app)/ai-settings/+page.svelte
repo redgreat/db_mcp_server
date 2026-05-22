@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte';
 	import { api, ApiError } from '$lib/api';
 	import { toast } from '$lib/stores/toast.svelte';
+	import RowActions from '$lib/components/RowActions.svelte';
 
 	interface LLMConfig {
 		id: number;
@@ -112,12 +113,12 @@
 			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
 					<tr>
-						<th>提供商</th>
-						<th>Base URL</th>
-						<th>默认模型</th>
-						<th>API Key</th>
-						<th>状态</th>
-						<th class="text-right">操作</th>
+						<th class="admin-th">提供商</th>
+						<th class="admin-th">Base URL</th>
+						<th class="admin-th">默认模型</th>
+						<th class="admin-th">API Key</th>
+						<th class="admin-th">状态</th>
+						<th class="admin-th col-actions">操作</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -147,22 +148,22 @@
 									<span class="badge badge-ghost badge-sm">未激活</span>
 								{/if}
 							</td>
-							<td>
-								<div class="flex justify-end gap-1.5">
-									<button type="button" class="btn btn-xs btn-table btn-primary" onclick={() => openEdit(config)}>编辑</button>
+							<td class="col-actions">
+								<RowActions>
+									<button type="button" class="btn-act btn-act-primary" onclick={() => openEdit(config)}>编辑</button>
 									{#if !config.is_active}
 										<button
 											type="button"
-											class="btn btn-xs btn-table btn-success"
+											class="btn-act btn-act-success"
 											disabled={!config.has_api_key}
 											onclick={() => activateConfig(config.id)}
 										>
 											激活
 										</button>
 									{:else}
-										<span class="badge badge-success badge-sm">当前使用</span>
+										<span class="badge badge-success badge-sm shrink-0">当前使用</span>
 									{/if}
-								</div>
+								</RowActions>
 							</td>
 						</tr>
 					{:else}

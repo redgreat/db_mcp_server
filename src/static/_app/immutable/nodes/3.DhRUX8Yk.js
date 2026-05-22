@@ -1,0 +1,1 @@
+import{X as e,Y as t,n}from"../chunks/CnGUjnx7.js";import{t as r}from"../chunks/Bs2RTcIN.js";import"../chunks/D9FQP20W.js";import{n as i,r as a}from"../chunks/DWXF8j1g.js";function o(o,s){e(s,!0),n(async()=>{if(!a.token){r(`/login`);return}try{let e=await i.get(`/admin/me`);a.setUser(e.user),r(`/connections`)}catch{a.logout(),r(`/login`)}}),t()}export{o as component};

@@ -10,6 +10,7 @@
 	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import CellTip from '$lib/components/CellTip.svelte';
+	import RowActions from '$lib/components/RowActions.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
@@ -335,17 +336,17 @@
 			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
 					<tr>
-						<th>密钥 (AK)</th>
-						<th>描述</th>
-						<th>状态</th>
-						<th>授权连接</th>
-						<th>IP 白名单</th>
+						<th class="admin-th">密钥 (AK)</th>
+						<th class="admin-th">描述</th>
+						<th class="admin-th">状态</th>
+						<th class="admin-th">授权连接</th>
+						<th class="admin-th">IP 白名单</th>
 						{#if authStore.isAdmin}
-							<th>已分配用户</th>
+							<th class="admin-th">已分配用户</th>
 						{/if}
-						<th>创建时间</th>
+						<th class="admin-th">创建时间</th>
 						{#if authStore.isAdmin}
-							<th class="text-right">操作</th>
+							<th class="admin-th col-actions">操作</th>
 						{/if}
 					</tr>
 				</thead>
@@ -426,21 +427,17 @@
 							{/if}
 							<td class="text-xs text-base-content/50">{formatDate(key.created_at)}</td>
 							{#if authStore.isAdmin}
-								<td>
-									<div class="flex justify-end gap-1.5">
+								<td class="col-actions">
+									<RowActions>
 										<button
 											type="button"
-											class="btn btn-xs btn-table {key.enabled ? 'btn-warning' : 'btn-success'}"
+											class="btn-act {key.enabled ? 'btn-act-warning' : 'btn-act-success'}"
 											onclick={() => toggleKey(key.id, !key.enabled)}
 										>
 											{key.enabled ? '禁用' : '启用'}
 										</button>
-										<button
-											type="button"
-											class="btn btn-xs btn-table btn-error"
-											onclick={() => (deleteKeyId = key.id)}
-										>删除</button>
-									</div>
+										<button type="button" class="btn-act btn-act-error" onclick={() => (deleteKeyId = key.id)}>删除</button>
+									</RowActions>
 								</td>
 							{/if}
 						</tr>

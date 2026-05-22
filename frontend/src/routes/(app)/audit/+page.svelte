@@ -155,14 +155,14 @@
 				<table class="table table-zebra table-sm table-admin w-full">
 					<thead>
 						<tr>
-							<th>时间</th>
-							<th>访问密钥</th>
-							<th>客户端 IP</th>
-							<th>操作</th>
-							<th>SQL 语句</th>
-							<th class="text-right">行数</th>
-							<th class="text-right">耗时</th>
-							<th>状态</th>
+							<th class="admin-th">时间</th>
+							<th class="admin-th">访问密钥</th>
+							<th class="admin-th">客户端 IP</th>
+							<th class="admin-th">操作</th>
+							<th class="admin-th">SQL 语句</th>
+							<th class="admin-th text-right">行数</th>
+							<th class="admin-th text-right">耗时</th>
+							<th class="admin-th">状态</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -241,13 +241,13 @@
 				<table class="table table-zebra table-sm table-admin w-full">
 					<thead>
 						<tr>
-							<th>时间</th>
-							<th>操作人</th>
-							<th>操作类型</th>
-							<th>资源类型</th>
-							<th>资源 ID</th>
-							<th>详情</th>
-							<th>客户端 IP</th>
+							<th class="admin-th">时间</th>
+							<th class="admin-th">操作人</th>
+							<th class="admin-th">操作类型</th>
+							<th class="admin-th">资源类型</th>
+							<th class="admin-th">资源 ID</th>
+							<th class="admin-th">详情</th>
+							<th class="admin-th">客户端 IP</th>
 						</tr>
 					</thead>
 					<tbody>

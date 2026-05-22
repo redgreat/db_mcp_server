@@ -11,6 +11,7 @@
 	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import CellTip from '$lib/components/CellTip.svelte';
+	import RowActions from '$lib/components/RowActions.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { onMount } from 'svelte';
@@ -182,12 +183,12 @@
 			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
 					<tr>
-						<th>用户名</th>
-						<th>邮箱</th>
-						<th>角色</th>
-						<th>状态</th>
-						<th>创建时间</th>
-						<th class="text-right">操作</th>
+						<th class="admin-th">用户名</th>
+						<th class="admin-th">邮箱</th>
+						<th class="admin-th">角色</th>
+						<th class="admin-th">状态</th>
+						<th class="admin-th">创建时间</th>
+						<th class="admin-th col-actions">操作</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -218,17 +219,17 @@
 								</div>
 							</td>
 							<td class="text-xs text-base-content/50">{formatDate(u.created_at)}</td>
-							<td>
-								<div class="flex justify-end gap-1.5">
-									<button type="button" class="btn btn-xs btn-table btn-primary" onclick={() => openEdit(u)}>编辑</button>
-									<button type="button" class="btn btn-xs btn-table btn-warning" onclick={() => openReset(u)}>重置密码</button>
+							<td class="col-actions">
+								<RowActions>
+									<button type="button" class="btn-act btn-act-primary" onclick={() => openEdit(u)}>编辑</button>
+									<button type="button" class="btn-act btn-act-warning" onclick={() => openReset(u)}>重置密码</button>
 									<button
 										type="button"
-										class="btn btn-xs btn-table btn-error"
+										class="btn-act btn-act-error"
 										disabled={u.id === authStore.user?.id}
 										onclick={() => (deleteUserId = u.id)}
 									>删除</button>
-								</div>
+								</RowActions>
 							</td>
 						</tr>
 					{:else}

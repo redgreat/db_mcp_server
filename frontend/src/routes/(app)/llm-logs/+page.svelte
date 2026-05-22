@@ -5,6 +5,7 @@
 	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import CellTip from '$lib/components/CellTip.svelte';
+	import LlmTokenChart, { type DayPoint } from '$lib/components/LlmTokenChart.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
 	interface DailyRow {
@@ -36,24 +37,46 @@
 	}
 
 	let daily = $state<DailyRow[]>([]);
+	let chartPoints = $state<DayPoint[]>([]);
+	let chartLoading = $state(true);
 	let logs = $state<CallLog[]>([]);
 	let total = $state(0);
 	let page = $state(1);
-	let loading = $state(true);
+	let logsLoading = $state(false);
 	let filterKey = $state('');
 	const pageSize = LIST_PAGE_SIZE;
 
+	function buildChartPoints(rows: DailyRow[]): DayPoint[] {
+		const map = new Map<string, { tokens: number; calls: number }>();
+		for (const r of rows) {
+			const d = (r.day || '').slice(0, 10);
+			if (!d) continue;
+			const cur = map.get(d) || { tokens: 0, calls: 0 };
+			cur.tokens += r.total_tokens || 0;
+			cur.calls += r.call_count || 0;
+			map.set(d, cur);
+		}
+		return [...map.entries()]
+			.sort((a, b) => a[0].localeCompare(b[0]))
+			.map(([day, v]) => ({ day, tokens: v.tokens, calls: v.calls }));
+	}
+
 	async function loadDaily() {
+		chartLoading = true;
 		try {
 			const res = await api.get<{ items: DailyRow[] }>('/admin/llm_call_logs/daily?days=14');
 			daily = res.items;
+			chartPoints = buildChartPoints(res.items);
 		} catch {
 			toast('加载每日汇总失败', 'error');
+			chartPoints = [];
+		} finally {
+			chartLoading = false;
 		}
 	}
 
 	async function loadLogs(p = 1) {
-		loading = true;
+		logsLoading = true;
 		page = p;
 		const params = new URLSearchParams({
 			page: String(p),
@@ -69,7 +92,7 @@
 		} catch (err) {
 			toast(err instanceof ApiError ? err.message : '加载失败', 'error');
 		} finally {
-			loading = false;
+			logsLoading = false;
 		}
 	}
 
@@ -77,12 +100,6 @@
 		loadDaily();
 		loadLogs(1);
 	});
-
-	function maskKey(k: string | null) {
-		if (!k) return '—';
-		if (k.length <= 10) return k;
-		return `${k.slice(0, 8)}…`;
-	}
 </script>
 
 <svelte:head>
@@ -94,43 +111,9 @@
 		<h1 class="text-2xl font-bold tracking-tight">大模型调用日志</h1>
 	</div>
 
-	<h2 class="text-sm font-semibold text-base-content/70 mb-2">近 14 日 Token 汇总</h2>
-	<div class="table-admin-wrap overflow-x-auto mb-8">
-		<table class="table table-zebra table-sm table-admin w-full">
-			<thead>
-				<tr>
-					<th>日期</th>
-					<th>访问密钥</th>
-					<th>提供商</th>
-					<th>模型</th>
-					<th class="text-right">调用次数</th>
-					<th class="text-right">输入 Token</th>
-					<th class="text-right">输出 Token</th>
-					<th class="text-right">合计</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each daily as row}
-					<tr class="hover">
-						<td class="whitespace-nowrap">{row.day}</td>
-						<td><CellTip value={maskKey(row.access_key)} maxWidth="max-w-[10rem]" /></td>
-						<td>{row.provider}</td>
-						<td><CellTip value={row.model_name} maxWidth="max-w-[10rem]" /></td>
-						<td class="text-right font-mono text-xs">{row.call_count}</td>
-						<td class="text-right font-mono text-xs">{row.prompt_tokens}</td>
-						<td class="text-right font-mono text-xs">{row.completion_tokens}</td>
-						<td class="text-right font-mono text-xs font-medium">{row.total_tokens}</td>
-					</tr>
-				{:else}
-					<tr>
-						<td colspan="8" class="text-center text-base-content/40 py-6">暂无调用记录</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
+	<LlmTokenChart points={chartPoints} loading={chartLoading} />
 
-	<h2 class="text-sm font-semibold text-base-content/70 mb-2">调用明细</h2>
+	<h2 class="text-sm font-semibold text-base-content/80 mb-2 mt-2">调用明细</h2>
 	<div class="flex flex-wrap gap-2 mb-4">
 		<input
 			type="text"
@@ -142,7 +125,7 @@
 		<button class="btn btn-sm btn-ghost" onclick={() => { filterKey = ''; loadLogs(1); }}>重置</button>
 	</div>
 
-	{#if loading}
+	{#if logsLoading}
 		<div class="flex justify-center py-12">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</div>
@@ -151,14 +134,14 @@
 			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
 					<tr>
-						<th>时间</th>
-						<th>访问密钥</th>
-						<th>来源</th>
-						<th>工具</th>
-						<th>提供商 / 模型</th>
-						<th class="text-right">Token</th>
-						<th class="text-right">耗时</th>
-						<th>状态</th>
+						<th class="admin-th">时间</th>
+						<th class="admin-th">访问密钥</th>
+						<th class="admin-th">来源</th>
+						<th class="admin-th">工具</th>
+						<th class="admin-th">提供商 / 模型</th>
+						<th class="admin-th text-right">Token</th>
+						<th class="admin-th text-right">耗时</th>
+						<th class="admin-th">状态</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -194,6 +177,6 @@
 				</tbody>
 			</table>
 		</div>
-		<Pagination {total} {page} {pageSize} onchange={loadLogs} />
 	{/if}
+	<Pagination {total} {page} {pageSize} onchange={loadLogs} />
 </div>

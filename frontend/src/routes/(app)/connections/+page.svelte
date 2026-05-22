@@ -10,6 +10,7 @@
 	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import CellTip from '$lib/components/CellTip.svelte';
+	import RowActions from '$lib/components/RowActions.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
@@ -234,18 +235,18 @@
 			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
 					<tr>
-						<th class="w-14">ID</th>
-						<th>名称</th>
-						<th>类型</th>
-						<th>主机</th>
-						<th class="w-16">端口</th>
-						<th>数据库</th>
-						<th>用户名</th>
-						<th>密码</th>
-						<th>描述</th>
-						<th>创建时间</th>
+						<th class="admin-th w-14">ID</th>
+						<th class="admin-th">名称</th>
+						<th class="admin-th">类型</th>
+						<th class="admin-th">主机</th>
+						<th class="admin-th w-16">端口</th>
+						<th class="admin-th">数据库</th>
+						<th class="admin-th">用户名</th>
+						<th class="admin-th">密码</th>
+						<th class="admin-th">描述</th>
+						<th class="admin-th">创建时间</th>
 						{#if authStore.isAdmin}
-							<th class="text-right w-36">操作</th>
+							<th class="admin-th col-actions">操作</th>
 						{/if}
 					</tr>
 				</thead>
@@ -267,19 +268,11 @@
 							</td>
 							<td class="text-xs text-base-content/50 whitespace-nowrap">{formatDate(conn.created_at)}</td>
 							{#if authStore.isAdmin}
-								<td>
-									<div class="flex justify-end gap-1.5 flex-nowrap">
-										<button
-											type="button"
-											class="btn btn-xs btn-table btn-primary"
-											onclick={() => openEditModal(conn)}
-										>编辑</button>
-										<button
-											type="button"
-											class="btn btn-xs btn-table btn-error"
-											onclick={() => openDeleteConfirm(conn)}
-										>删除</button>
-									</div>
+								<td class="col-actions">
+									<RowActions>
+										<button type="button" class="btn-act btn-act-primary" onclick={() => openEditModal(conn)}>编辑</button>
+										<button type="button" class="btn-act btn-act-error" onclick={() => openDeleteConfirm(conn)}>删除</button>
+									</RowActions>
 								</td>
 							{/if}
 						</tr>
