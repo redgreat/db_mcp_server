@@ -67,6 +67,8 @@ def build_admin_router(cfg: Config):
     admin_db_url = cfg.get_admin_db_url()
     engine = create_engine(admin_db_url, pool_pre_ping=True)
     ensure_schema(engine)
+    from .schema_cache import get_admin_tables
+    tbl = get_admin_tables(engine)
 
     # 认证服务
     auth_service = AuthService(
@@ -90,9 +92,7 @@ def build_admin_router(cfg: Config):
     @router.post("/admin/login")
     def login(req: LoginRequest):
         """管理员登录"""
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
             user = session.execute(
@@ -143,13 +143,10 @@ def build_admin_router(cfg: Config):
     @router.post("/admin/change_password")
     def change_password(req: ChangePasswordRequest, authorization: str = Header(None)):
         """修改当前登录管理员密码"""
-        from sqlalchemy import Table, MetaData, select, update
-
         user_data = auth_service.get_current_user(authorization)
         user_id = user_data["user_id"]
 
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
             row = session.execute(
@@ -192,20 +189,16 @@ def build_admin_router(cfg: Config):
         page_size = min(max(1, page_size), 1000)
         offset = (page - 1) * page_size
 
-        from sqlalchemy import Table, MetaData, func
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        from sqlalchemy import func
+
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
-            # 获取总数
             total = session.execute(select(func.count()).select_from(admin_users)).scalar()
-
-            # 分页查询
             rows = session.execute(
                 select(admin_users).offset(offset).limit(page_size)
             ).mappings().all()
 
-        # 不返回密码哈希
         users = []
         for r in rows:
             user_dict = serialize_row(r)
@@ -228,9 +221,7 @@ def build_admin_router(cfg: Config):
         if req.role not in ["admin", "user"]:
             raise HTTPException(status_code=400, detail="角色必须是 admin 或 user")
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
             # 检查用户名是否已存在
@@ -283,9 +274,7 @@ def build_admin_router(cfg: Config):
         if req.role is not None and req.role not in ["admin", "user"]:
             raise HTTPException(status_code=400, detail="角色必须是 admin 或 user")
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
             # 检查用户是否存在
@@ -336,9 +325,7 @@ def build_admin_router(cfg: Config):
         if user_id == current_user["user_id"]:
             raise HTTPException(status_code=400, detail="不能删除当前登录用户")
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
             # 检查用户是否存在
@@ -382,9 +369,7 @@ def build_admin_router(cfg: Config):
         if not req.new_password:
             raise HTTPException(status_code=400, detail="新密码不能为空")
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as session:
             # 检查用户是否存在
@@ -427,9 +412,7 @@ def build_admin_router(cfg: Config):
         # 需要管理员权限
         auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        llm_configs = Table("llm_configs", meta, autoload_with=engine)
+        llm_configs = tbl["llm_configs"]
 
         with Session(engine) as session:
             rows = session.execute(select(llm_configs).order_by(llm_configs.c.id)).mappings().all()
@@ -452,9 +435,7 @@ def build_admin_router(cfg: Config):
         """更新指定的 LLM 配置"""
         auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        llm_configs = Table("llm_configs", meta, autoload_with=engine)
+        llm_configs = tbl["llm_configs"]
 
         with Session(engine) as session:
             existing = session.execute(select(llm_configs).where(llm_configs.c.id == config_id)).mappings().first()
@@ -476,29 +457,32 @@ def build_admin_router(cfg: Config):
             )
             session.commit()
 
-            return {"ok": True, "message": "配置已更新"}
+        from ..ai.service import reset_llm_client
+        reset_llm_client()
+
+        return {"ok": True, "message": "配置已更新"}
 
     @router.post("/admin/llm_configs/{config_id}/activate")
     def activate_llm_config(config_id: int, authorization: str = Header(None)):
         """激活指定的 LLM 配置"""
         auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        llm_configs = Table("llm_configs", meta, autoload_with=engine)
+        llm_configs = tbl["llm_configs"]
 
         with Session(engine) as session:
             existing = session.execute(select(llm_configs).where(llm_configs.c.id == config_id)).mappings().first()
             if not existing:
                 raise HTTPException(status_code=404, detail="配置不存在")
 
-            # 将所有记录设为非激活
             session.execute(update(llm_configs).values(is_active=False))
             # 激活指定的配置
             session.execute(update(llm_configs).where(llm_configs.c.id == config_id).values(is_active=True))
             session.commit()
 
-            return {"ok": True, "message": f"已激活配置: {existing['provider']}"}
+        from ..ai.service import reset_llm_client
+        reset_llm_client()
+
+        return {"ok": True, "message": f"已激活配置: {existing['provider']}"}
 
     # ==================== 首页 ====================
 
@@ -532,10 +516,10 @@ def build_admin_router(cfg: Config):
         page_size = min(max(1, page_size), 1000)
         offset = (page - 1) * page_size
 
-        from sqlalchemy import Table, MetaData, func
-        meta = MetaData()
-        keys = Table("access_keys", meta, autoload_with=engine)
-        key_users = Table("access_key_users", meta, autoload_with=engine)
+        from sqlalchemy import func
+
+        keys = tbl["access_keys"]
+        key_users = tbl["access_key_users"]
 
         with Session(engine) as s:
             if user_role == "admin":
@@ -571,9 +555,7 @@ def build_admin_router(cfg: Config):
         """创建访问密钥（仅管理员）"""
         user_data = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        keys = Table("access_keys", meta, autoload_with=engine)
+        keys = tbl["access_keys"]
         with Session(engine) as s:
             s.execute(insert(keys).values(
                 ak=req.ak,
@@ -608,9 +590,7 @@ def build_admin_router(cfg: Config):
         body = await request.json()
         enabled = body.get('enabled', True)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        keys = Table("access_keys", meta, autoload_with=engine)
+        keys = tbl["access_keys"]
         with Session(engine) as s:
             s.execute(
                 update(keys)
@@ -637,9 +617,7 @@ def build_admin_router(cfg: Config):
         """删除访问密钥（仅管理员）"""
         user_data = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        keys = Table("access_keys", meta, autoload_with=engine)
+        keys = tbl["access_keys"]
         with Session(engine) as s:
             s.execute(delete(keys).where(keys.c.id == key_id))
             s.commit()
@@ -663,10 +641,8 @@ def build_admin_router(cfg: Config):
         """获取密钥已分配的用户列表（仅管理员）"""
         auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        key_users = Table("access_key_users", meta, autoload_with=engine)
-        admin_users = Table("admin_users", meta, autoload_with=engine)
+        key_users = tbl["access_key_users"]
+        admin_users = tbl["admin_users"]
 
         with Session(engine) as s:
             # JOIN 查询获取用户详细信息
@@ -694,9 +670,7 @@ def build_admin_router(cfg: Config):
         """为密钥分配用户（仅管理员）"""
         current_user = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        key_users = Table("access_key_users", meta, autoload_with=engine)
+        key_users = tbl["access_key_users"]
 
         # 从请求体获取用户ID列表
         body = await request.json()
@@ -737,9 +711,7 @@ def build_admin_router(cfg: Config):
         """取消密钥对某用户的分配（仅管理员）"""
         current_user = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        key_users = Table("access_key_users", meta, autoload_with=engine)
+        key_users = tbl["access_key_users"]
 
         with Session(engine) as s:
             s.execute(
@@ -779,24 +751,27 @@ def build_admin_router(cfg: Config):
         page_size = min(max(1, page_size), 1000)
         offset = (page - 1) * page_size
 
-        from sqlalchemy import Table, MetaData, func
-        meta = MetaData()
-        t = Table("db_connections", meta, autoload_with=engine)
-        with Session(engine) as s:
-            # 获取总数
-            total = s.execute(select(func.count()).select_from(t)).scalar()
+        from sqlalchemy import func
 
-            # 分页查询
+        t = tbl["db_connections"]
+        list_cols = (
+            t.c.id,
+            t.c.name,
+            t.c.host,
+            t.c.port,
+            t.c.db_type,
+            t.c.database,
+            t.c.username,
+            t.c.description,
+            t.c.created_at,
+        )
+        with Session(engine) as s:
+            total = s.execute(select(func.count()).select_from(t)).scalar()
             rows = s.execute(
-                select(t).offset(offset).limit(page_size)
+                select(*list_cols).offset(offset).limit(page_size)
             ).mappings().all()
 
-        # 密码脱敏
-        masked = []
-        for r in rows:
-            d = serialize_row(r)
-            d["password_enc"] = "***"
-            masked.append(d)
+        masked = [serialize_row(r) for r in rows]
 
         return {
             "items": masked,
@@ -823,9 +798,7 @@ def build_admin_router(cfg: Config):
         # 加密密码 (使用 master_key)
         pwd_enc = encrypt_text(password, cfg.security.master_key)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("db_connections", meta, autoload_with=engine)
+        t = tbl["db_connections"]
         with Session(engine) as s:
             s.execute(insert(t).values(
                 name=name,
@@ -867,9 +840,7 @@ def build_admin_router(cfg: Config):
         """更新数据库连接（仅管理员）；password 不传或为空则保留原密码"""
         user_data = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("db_connections", meta, autoload_with=engine)
+        t = tbl["db_connections"]
         with Session(engine) as s:
             row = s.execute(select(t).where(t.c.id == conn_id)).mappings().first()
             if not row:
@@ -907,16 +878,15 @@ def build_admin_router(cfg: Config):
         """删除前预览：统计将影响的关联数据（仅管理员）"""
         auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData, func, inspect as sa_inspect
+        from sqlalchemy import func, inspect as sa_inspect
 
-        meta = MetaData()
-        conns = Table("db_connections", meta, autoload_with=engine)
+        conns = tbl["db_connections"]
         with Session(engine) as s:
             row = s.execute(select(conns).where(conns.c.id == conn_id)).mappings().first()
             if not row:
                 raise HTTPException(status_code=404, detail="连接不存在")
 
-            permissions = Table("permissions", meta, autoload_with=engine)
+            permissions = tbl["permissions"]
             perm_count = s.execute(
                 select(func.count())
                 .select_from(permissions)
@@ -925,14 +895,14 @@ def build_admin_router(cfg: Config):
 
             rule_count = 0
             if "db_rules" in sa_inspect(engine).get_table_names():
-                db_rules = Table("db_rules", meta, autoload_with=engine)
+                db_rules = tbl["db_rules"]
                 rule_count = s.execute(
                     select(func.count())
                     .select_from(db_rules)
                     .where(db_rules.c.connection_id == conn_id)
                 ).scalar() or 0
 
-            audit_logs = Table("audit_logs", meta, autoload_with=engine)
+            audit_logs = tbl["audit_logs"]
             audit_count = s.execute(
                 select(func.count())
                 .select_from(audit_logs)
@@ -959,25 +929,23 @@ def build_admin_router(cfg: Config):
         """删除数据库连接（仅管理员）；先解除/删除关联的权限、规则与审计引用"""
         user_data = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
         from sqlalchemy.exc import IntegrityError
 
-        meta = MetaData()
-        conns = Table("db_connections", meta, autoload_with=engine)
+        conns = tbl["db_connections"]
         with Session(engine) as s:
             row = s.execute(select(conns).where(conns.c.id == conn_id)).mappings().first()
             if not row:
                 raise HTTPException(status_code=404, detail="连接不存在")
 
-            permissions = Table("permissions", meta, autoload_with=engine)
+            permissions = tbl["permissions"]
             s.execute(delete(permissions).where(permissions.c.connection_id == conn_id))
 
             from sqlalchemy import inspect as sa_inspect
             if "db_rules" in sa_inspect(engine).get_table_names():
-                db_rules = Table("db_rules", meta, autoload_with=engine)
+                db_rules = tbl["db_rules"]
                 s.execute(delete(db_rules).where(db_rules.c.connection_id == conn_id))
 
-            audit_logs = Table("audit_logs", meta, autoload_with=engine)
+            audit_logs = tbl["audit_logs"]
             s.execute(
                 update(audit_logs)
                 .where(audit_logs.c.connection_id == conn_id)
@@ -1014,9 +982,7 @@ def build_admin_router(cfg: Config):
         user_id = current_user["user_id"]
         user_role = current_user.get("role", "user")
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        permissions = Table("permissions", meta, autoload_with=engine)
+        permissions = tbl["permissions"]
 
         with Session(engine) as s:
             if user_role == "admin":
@@ -1024,7 +990,7 @@ def build_admin_router(cfg: Config):
                 rows = s.execute(select(permissions)).mappings().all()
             else:
                 # 普通用户：只返回自己有权访问的密钥的权限
-                key_users = Table("access_key_users", meta, autoload_with=engine)
+                key_users = tbl["access_key_users"]
                 query = (
                     select(permissions)
                     .join(key_users, permissions.c.key_id == key_users.c.key_id)
@@ -1045,9 +1011,7 @@ def build_admin_router(cfg: Config):
         """创建权限（仅管理员）"""
         user_data = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("permissions", meta, autoload_with=engine)
+        t = tbl["permissions"]
         with Session(engine) as s:
             s.execute(insert(t).values(
                 key_id=key_id,
@@ -1082,9 +1046,7 @@ def build_admin_router(cfg: Config):
         """删除权限（仅管理员）"""
         user_data = auth_service.require_admin(authorization)
 
-        from sqlalchemy import Table, MetaData
-        meta = MetaData()
-        t = Table("permissions", meta, autoload_with=engine)
+        t = tbl["permissions"]
         with Session(engine) as s:
             s.execute(delete(t).where(t.c.id == perm_id))
             s.commit()
@@ -1122,10 +1084,8 @@ def build_admin_router(cfg: Config):
             rules = ip_checker.list_whitelist(key_id=key_id)
         else:
             # 普通用户：只返回自己有权访问的密钥的白名单
-            from sqlalchemy import Table, MetaData
-            meta = MetaData()
-            whitelist = Table("whitelist", meta, autoload_with=engine)
-            key_users = Table("access_key_users", meta, autoload_with=engine)
+            whitelist = tbl["whitelist"]
+            key_users = tbl["access_key_users"]
 
             with Session(engine) as s:
                 query = (
@@ -1221,12 +1181,11 @@ def build_admin_router(cfg: Config):
         page_size = min(max(1, page_size), 1000)
         offset = (page - 1) * page_size
 
-        from sqlalchemy import Table, MetaData, desc, func
-        meta = MetaData()
-        audit_logs = Table("audit_logs", meta, autoload_with=engine)
+        from sqlalchemy import desc, func
+
+        audit_logs = tbl["audit_logs"]
 
         with Session(engine) as s:
-            # 构建查询
             query = select(audit_logs).order_by(desc(audit_logs.c.timestamp))
 
             # 添加过滤条件
@@ -1235,13 +1194,14 @@ def build_admin_router(cfg: Config):
             if operation:
                 query = query.where(audit_logs.c.operation == operation)
 
-            # 获取总数
-            count_query = select(func.count()).select_from(query.subquery())
-            total = s.execute(count_query).scalar()
+            count_stmt = select(func.count()).select_from(audit_logs)
+            if access_key:
+                count_stmt = count_stmt.where(audit_logs.c.access_key == access_key)
+            if operation:
+                count_stmt = count_stmt.where(audit_logs.c.operation == operation)
+            total = s.execute(count_stmt).scalar()
 
-            # 分页查询
-            query = query.offset(offset).limit(page_size)
-            rows = s.execute(query).mappings().all()
+            rows = s.execute(query.offset(offset).limit(page_size)).mappings().all()
 
         return {
             "items": [serialize_row(r) for r in rows],
@@ -1273,12 +1233,11 @@ def build_admin_router(cfg: Config):
         page_size = min(max(1, page_size), 1000)
         offset = (page - 1) * page_size
 
-        from sqlalchemy import Table, MetaData, desc, func
-        meta = MetaData()
-        system_logs = Table("system_logs", meta, autoload_with=engine)
+        from sqlalchemy import desc, func
+
+        system_logs = tbl["system_logs"]
 
         with Session(engine) as s:
-            # 构建查询
             query = select(system_logs).order_by(desc(system_logs.c.timestamp))
 
             # 添加过滤条件
@@ -1287,13 +1246,14 @@ def build_admin_router(cfg: Config):
             if resource_type:
                 query = query.where(system_logs.c.resource_type == resource_type)
 
-            # 获取总数
-            count_query = select(func.count()).select_from(query.subquery())
-            total = s.execute(count_query).scalar()
+            count_stmt = select(func.count()).select_from(system_logs)
+            if operation:
+                count_stmt = count_stmt.where(system_logs.c.operation == operation)
+            if resource_type:
+                count_stmt = count_stmt.where(system_logs.c.resource_type == resource_type)
+            total = s.execute(count_stmt).scalar()
 
-            # 分页查询
-            query = query.offset(offset).limit(page_size)
-            rows = s.execute(query).mappings().all()
+            rows = s.execute(query.offset(offset).limit(page_size)).mappings().all()
 
         return {
             "items": [serialize_row(r) for r in rows],

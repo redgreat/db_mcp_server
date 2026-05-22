@@ -1,11 +1,10 @@
 <!--
-  AI 配置管理页面
-  创建时间：2026-05-01
-  创建人：Antigravity
+  大模型配置（表格 + 编辑弹窗）
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	interface LLMConfig {
 		id: number;
@@ -20,7 +19,6 @@
 
 	let configs = $state<LLMConfig[]>([]);
 	let loading = $state(true);
-	let error = $state('');
 
 	let editingConfig = $state<LLMConfig | null>(null);
 	let editBaseUrl = $state('');
@@ -28,13 +26,23 @@
 	let editModelName = $state('');
 	let editLoading = $state(false);
 
+	const providerLabels: Record<string, string> = {
+		openai: 'OpenAI (GPT)',
+		claude: 'Anthropic (Claude)',
+		deepseek: 'DeepSeek'
+	};
+
+	function providerLabel(p: string) {
+		return providerLabels[p] || p;
+	}
+
 	async function loadConfigs() {
+		loading = true;
 		try {
-			loading = true;
 			const res = await api.get<{ items: LLMConfig[] }>('/admin/llm_configs');
 			configs = res.items;
-		} catch (err: unknown) {
-			error = err instanceof Error ? err.message : '加载失败';
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : '加载失败', 'error');
 		} finally {
 			loading = false;
 		}
@@ -58,18 +66,18 @@
 	async function handleSave(e: SubmitEvent) {
 		e.preventDefault();
 		if (!editingConfig) return;
-		
+		editLoading = true;
 		try {
-			editLoading = true;
 			await api.put(`/admin/llm_configs/${editingConfig.id}`, {
 				base_url: editBaseUrl,
 				api_key: editApiKey,
 				model_name: editModelName
 			});
 			closeEdit();
+			toast('配置已保存', 'success');
 			await loadConfigs();
-		} catch (err: unknown) {
-			alert(err instanceof Error ? err.message : '保存失败');
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : '保存失败', 'error');
 		} finally {
 			editLoading = false;
 		}
@@ -78,167 +86,137 @@
 	async function activateConfig(id: number) {
 		try {
 			await api.post(`/admin/llm_configs/${id}/activate`, {});
+			toast('已切换激活模型', 'success');
 			await loadConfigs();
-		} catch (err: unknown) {
-			alert(err instanceof Error ? err.message : '激活失败');
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : '激活失败', 'error');
 		}
-	}
-
-	function getProviderLabel(provider: string) {
-		const map: Record<string, string> = {
-			openai: 'OpenAI (GPT)',
-			claude: 'Anthropic (Claude)',
-			deepseek: 'DeepSeek'
-		};
-		return map[provider] || provider;
-	}
-	
-	function getProviderBadgeColor(provider: string) {
-		const map: Record<string, string> = {
-			openai: 'badge-info',
-			claude: 'badge-secondary',
-			deepseek: 'badge-primary'
-		};
-		return map[provider] || 'badge-neutral';
 	}
 </script>
 
-<div class="max-w-5xl mx-auto space-y-6">
-	<!-- 顶部标题区 -->
-	<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-base-100 p-6 rounded-2xl shadow-sm border border-base-200">
-		<div>
-			<h1 class="text-2xl font-bold tracking-tight">大模型 AI 配置</h1>
-		</div>
+<svelte:head>
+	<title>大模型配置 - DB MCP Server</title>
+</svelte:head>
+
+<div class="fade-in">
+	<div class="mb-6">
+		<h1 class="text-2xl font-bold tracking-tight">大模型配置</h1>
+		<p class="text-sm text-base-content/50 mt-1">
+			配置并激活一个提供商后，ER 分析、SQL 审查、性能诊断等工具将统一通过该模型调用。
+		</p>
 	</div>
 
 	{#if loading}
-		<div class="flex justify-center p-12">
+		<div class="flex justify-center py-12">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</div>
-	{:else if error}
-		<div class="alert alert-error shadow-sm rounded-xl">
-			<svg class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-			</svg>
-			<span>{error}</span>
-			<button class="btn btn-sm" onclick={loadConfigs}>重试</button>
-		</div>
 	{:else}
-		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-			{#each configs as config}
-				<div class="card bg-base-100 border border-base-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-					{#if config.is_active}
-						<div class="absolute top-0 right-0">
-							<div class="bg-success text-success-content text-xs font-bold px-3 py-1 rounded-bl-lg shadow-sm">
-								当前激活
-							</div>
-						</div>
-					{/if}
-					
-					<div class="card-body p-6">
-						<div class="flex items-center gap-3 mb-2">
-							<div class="badge {getProviderBadgeColor(config.provider)} font-semibold px-3 py-3">
-								{getProviderLabel(config.provider)}
-							</div>
-						</div>
-						
-						<div class="space-y-3 mt-4 flex-1">
-							<div>
-								<div class="text-xs text-base-content/50 font-medium mb-1">Base URL</div>
-								<div class="text-sm font-mono bg-base-200 p-2 rounded-md break-all">
-									{config.base_url || '未设置'}
+		<div class="overflow-x-auto">
+			<table class="table table-zebra table-sm">
+				<thead>
+					<tr class="text-xs text-base-content/60">
+						<th>提供商</th>
+						<th>Base URL</th>
+						<th>默认模型</th>
+						<th>API Key</th>
+						<th>状态</th>
+						<th class="text-right">操作</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each configs as config}
+						<tr class="hover">
+							<td class="font-medium text-sm">{providerLabel(config.provider)}</td>
+							<td class="text-xs font-mono max-w-[240px] truncate" title={config.base_url || ''}>
+								{config.base_url || '—'}
+							</td>
+							<td class="text-xs font-mono">{config.model_name || '—'}</td>
+							<td>
+								<div class="flex items-center gap-1.5">
+									<div
+										class="w-1.5 h-1.5 rounded-full {config.has_api_key ? 'bg-success' : 'bg-error'}"
+									></div>
+									<span class="text-xs {config.has_api_key ? 'text-success' : 'text-error'}">
+										{config.has_api_key ? '已配置' : '未配置'}
+									</span>
 								</div>
-							</div>
-							
-							<div>
-								<div class="text-xs text-base-content/50 font-medium mb-1">默认模型 (Model)</div>
-								<div class="text-sm font-mono bg-base-200 p-2 rounded-md">
-									{config.model_name || '未设置'}
-								</div>
-							</div>
-							
-							<div>
-								<div class="text-xs text-base-content/50 font-medium mb-1">API Key 状态</div>
-								<div class="text-sm flex items-center gap-2">
-									{#if config.has_api_key}
-										<div class="w-2 h-2 rounded-full bg-success"></div>
-										<span class="text-success font-medium">已配置 (安全存储)</span>
-									{:else}
-										<div class="w-2 h-2 rounded-full bg-error"></div>
-										<span class="text-error font-medium">未配置</span>
+							</td>
+							<td>
+								{#if config.is_active}
+									<span class="badge badge-success badge-sm">使用中</span>
+								{:else}
+									<span class="badge badge-ghost badge-sm">未激活</span>
+								{/if}
+							</td>
+							<td>
+								<div class="flex justify-end gap-1">
+									<button class="btn btn-xs btn-ghost" onclick={() => openEdit(config)}>编辑</button>
+									{#if !config.is_active}
+										<button
+											class="btn btn-xs btn-primary"
+											disabled={!config.has_api_key}
+											onclick={() => activateConfig(config.id)}
+										>
+											激活
+										</button>
 									{/if}
 								</div>
-							</div>
-						</div>
-
-						<div class="card-actions justify-end mt-6 pt-4 border-t border-base-200">
-							<button class="btn btn-sm btn-ghost" onclick={() => openEdit(config)}>编辑</button>
-							{#if !config.is_active}
-								<button class="btn btn-sm btn-primary" onclick={() => activateConfig(config.id)} disabled={!config.has_api_key}>
-									激活使用
-								</button>
-							{:else}
-								<button class="btn btn-sm btn-success cursor-default">
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-									</svg>
-									使用中
-								</button>
-							{/if}
-						</div>
-					</div>
-				</div>
-			{/each}
+							</td>
+						</tr>
+					{:else}
+						<tr>
+							<td colspan="6" class="text-center text-base-content/40 py-8">暂无配置</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
 		</div>
 	{/if}
 </div>
 
-<!-- 编辑配置弹窗 -->
 {#if editingConfig}
-	<div class="modal modal-open bg-base-300/60 backdrop-blur-sm">
-		<div class="modal-box max-w-md shadow-2xl border border-base-200">
-			<h3 class="font-bold text-lg mb-6 flex items-center gap-2">
-				<svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-				</svg>
-				配置 {getProviderLabel(editingConfig.provider)}
-			</h3>
-			
-			<form onsubmit={handleSave} class="space-y-4">
+	<div class="modal modal-open">
+		<div class="modal-box max-w-md">
+			<h3 class="font-bold text-base mb-4">编辑 — {providerLabel(editingConfig.provider)}</h3>
+			<form onsubmit={handleSave} class="space-y-3">
 				<div class="form-control">
-					<label class="label pb-1" for="base_url">
-						<span class="label-text font-medium">Base URL</span>
-						<span class="label-text-alt text-base-content/50">支持代理/私有化地址</span>
-					</label>
-					<input id="base_url" type="url" class="input input-bordered w-full font-mono text-sm" 
-						bind:value={editBaseUrl} placeholder="https://api.openai.com/v1" required />
+					<label class="label pb-1 text-sm" for="base_url">Base URL</label>
+					<input
+						id="base_url"
+						type="url"
+						class="input input-bordered input-sm w-full font-mono"
+						bind:value={editBaseUrl}
+						required
+					/>
 				</div>
-				
 				<div class="form-control">
-					<label class="label pb-1" for="model_name">
-						<span class="label-text font-medium">模型名称 (Model)</span>
-					</label>
-					<input id="model_name" type="text" class="input input-bordered w-full font-mono text-sm" 
-						bind:value={editModelName} placeholder="gpt-4o" required />
+					<label class="label pb-1 text-sm" for="model_name">默认模型</label>
+					<input
+						id="model_name"
+						type="text"
+						class="input input-bordered input-sm w-full font-mono"
+						bind:value={editModelName}
+						required
+					/>
 				</div>
-				
 				<div class="form-control">
-					<label class="label pb-1" for="api_key">
-						<span class="label-text font-medium">API Key</span>
-						{#if editingConfig.has_api_key}
-							<span class="label-text-alt text-warning">留空表示不修改现有Key</span>
-						{/if}
-					</label>
-					<input id="api_key" type="password" class="input input-bordered w-full font-mono text-sm" 
-						bind:value={editApiKey} placeholder="sk-..." />
+					<label class="label pb-1 text-sm" for="api_key">API Key</label>
+					{#if editingConfig.has_api_key}
+						<span class="label-text-alt text-warning text-xs mb-1">留空表示不修改</span>
+					{/if}
+					<input
+						id="api_key"
+						type="password"
+						class="input input-bordered input-sm w-full font-mono"
+						bind:value={editApiKey}
+						placeholder="sk-..."
+					/>
 				</div>
-
-				<div class="modal-action mt-8 border-t border-base-200 pt-4">
-					<button type="button" class="btn btn-ghost" onclick={closeEdit}>取消</button>
-					<button type="submit" class="btn btn-primary" disabled={editLoading}>
+				<div class="modal-action mt-4">
+					<button type="button" class="btn btn-ghost btn-sm" onclick={closeEdit}>取消</button>
+					<button type="submit" class="btn btn-primary btn-sm" disabled={editLoading}>
 						{#if editLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
-						保存配置
+						保存
 					</button>
 				</div>
 			</form>

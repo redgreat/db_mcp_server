@@ -201,10 +201,10 @@ MCP_TOOLS = [
     MCPTool(
         name="generate_er_diagram",
         description=(
-            "生成数据库 ER 图。分析整库表结构和外键关系，"
-            "自动推断命名约定中的隐含关系（如 user_id → users），"
-            "输出 Mermaid erDiagram 代码和文字描述。"
-            "当 object_storage 已启用或 upload_to_oss=true 时，将 markdown/pdf 上传到 OSS 并返回可点击的下载链接。"
+            "生成数据库 ER 图。按业务域与表/字段备注归纳实体与属性（非简单一表一实体），"
+            "分析外键与命名推断关系，输出 Mermaid 图与说明。"
+            "PDF 含业务实体摘要+按域分片关系图；完整表索引请用 format=markdown。"
+            "upload_to_oss=true 时上传 OSS 并返回下载链接。"
         ),
         input_schema={
             "type": "object",

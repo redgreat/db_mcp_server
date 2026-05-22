@@ -52,6 +52,9 @@ def build_standard_mcp_router(
     data_masker
 ):
     """构建标准 MCP 路由器 (SSE)"""
+    from ..admin.schema_cache import get_admin_tables
+
+    tbl = get_admin_tables(admin_engine)
     router = APIRouter()
 
     @router.get("/mcp/sse")
@@ -67,12 +70,11 @@ def build_standard_mcp_router(
             raise HTTPException(status_code=401, detail="缺少访问密钥")
 
         # 验证访问密钥
-        from sqlalchemy import Table, MetaData, select
+        from sqlalchemy import select
         from sqlalchemy.orm import Session
 
+        keys = tbl["access_keys"]
         with Session(admin_engine) as session:
-            meta = MetaData()
-            keys = Table("access_keys", meta, autoload_with=admin_engine)
             key_row = session.execute(
                 select(keys).where(
                     keys.c.ak == x_access_key,
@@ -308,33 +310,29 @@ async def execute_mcp_tool(
 ) -> Any:
     """执行 MCP 工具"""
     import time
-    from sqlalchemy import Table, MetaData, select, text, or_
+    from sqlalchemy import select, text, or_
     from sqlalchemy.orm import Session
+    from ..admin.schema_cache import get_admin_tables
     from ..security.secret import decrypt_text
     from ..security.interceptor import intercept_sql
 
+    tbl = get_admin_tables(admin_engine)
     start_time = time.time()
     connection_id = arguments.get("connection_id")
 
     # 1. 特殊处理 list_connections，因为它不需要 connection_id
     if tool_name == "list_connections":
         search = arguments.get("search", "")
+        keys = tbl["access_keys"]
+        perms = tbl["permissions"]
+        conns = tbl["db_connections"]
         with Session(admin_engine) as session:
-            meta = MetaData()
-
-            # 获取密钥 ID
-            keys = Table("access_keys", meta, autoload_with=admin_engine)
             key_row = session.execute(
                 select(keys).where(keys.c.ak == access_key)
             ).mappings().first()
 
             if not key_row:
                 raise Exception("访问密钥不存在")
-
-            # 查询有权限的连接
-            # 关联 permissions 和 db_connections
-            perms = Table("permissions", meta, autoload_with=admin_engine)
-            conns = Table("db_connections", meta, autoload_with=admin_engine)
 
             stmt = select(
                 conns.c.id,
@@ -386,18 +384,19 @@ async def execute_mcp_tool(
         if not src_conn_id or not tgt_conn_id:
             raise Exception("缺少必需参数: source_connection_id, target_connection_id")
 
-        def _resolve_connection(session, meta, aid, cid):
-            keys = Table("access_keys", meta, autoload_with=admin_engine)
+        keys = tbl["access_keys"]
+        perms = tbl["permissions"]
+        conns = tbl["db_connections"]
+
+        def _resolve_connection(session, aid, cid):
             key_row = session.execute(select(keys).where(keys.c.ak == aid)).mappings().first()
             if not key_row:
                 raise Exception("访问密钥不存在")
-            perms = Table("permissions", meta, autoload_with=admin_engine)
             perm = session.execute(
                 select(perms).where(perms.c.key_id == key_row["id"], perms.c.connection_id == cid)
             ).mappings().first()
             if not perm:
                 raise Exception(f"该密钥无权访问连接 {cid}")
-            conns = Table("db_connections", meta, autoload_with=admin_engine)
             crow = session.execute(select(conns).where(conns.c.id == cid)).mappings().first()
             if not crow:
                 raise Exception(f"连接 {cid} 不存在")
@@ -406,9 +405,8 @@ async def execute_mcp_tool(
             return eg, crow["database"], crow["db_type"]
 
         with Session(admin_engine) as session:
-            meta = MetaData()
-            eng_src, db_src, dbtype_src = _resolve_connection(session, meta, access_key, src_conn_id)
-            eng_tgt, db_tgt, dbtype_tgt = _resolve_connection(session, meta, access_key, tgt_conn_id)
+            eng_src, db_src, dbtype_src = _resolve_connection(session, access_key, src_conn_id)
+            eng_tgt, db_tgt, dbtype_tgt = _resolve_connection(session, access_key, tgt_conn_id)
 
         src_db = arguments.get("source_database") or db_src
         tgt_db = arguments.get("target_database") or db_tgt
@@ -435,12 +433,10 @@ async def execute_mcp_tool(
 
     from ..tools.db_metadata_tool import list_databases, list_tables, list_views, list_procedures, table_info
 
-    # 检查权限并获取连接信息
+    keys = tbl["access_keys"]
+    perms = tbl["permissions"]
+    conns = tbl["db_connections"]
     with Session(admin_engine) as session:
-        meta = MetaData()
-
-        # 获取密钥 ID
-        keys = Table("access_keys", meta, autoload_with=admin_engine)
         key_row = session.execute(
             select(keys).where(keys.c.ak == access_key)
         ).mappings().first()
@@ -448,8 +444,6 @@ async def execute_mcp_tool(
         if not key_row:
             raise Exception("访问密钥不存在")
 
-        # 检查权限
-        perms = Table("permissions", meta, autoload_with=admin_engine)
         perm = session.execute(
             select(perms).where(
                 perms.c.key_id == key_row["id"],
@@ -460,8 +454,6 @@ async def execute_mcp_tool(
         if not perm:
             raise Exception("该密钥无权访问此数据库连接")
 
-        # 获取连接信息
-        conns = Table("db_connections", meta, autoload_with=admin_engine)
         conn_row = session.execute(
             select(conns).where(conns.c.id == connection_id)
         ).mappings().first()

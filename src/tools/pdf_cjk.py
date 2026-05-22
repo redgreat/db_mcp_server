@@ -48,6 +48,51 @@ def set_cjk_font(pdf: FPDF, style: str = "", size: int = 10) -> None:
     pdf.set_font(name, size=size)
 
 
+def text_width(pdf: FPDF) -> float:
+    """可用文本宽度（避免 w=0 在部分状态下触发 fpdf2 宽度错误）。"""
+    w = pdf.w - pdf.l_margin - pdf.r_margin
+    return max(w, 20.0)
+
+
+def ensure_vertical_space(pdf: FPDF, needed_mm: float = 15) -> None:
+    """当前页剩余高度不足时换页。"""
+    if pdf.get_y() + needed_mm > pdf.h - pdf.b_margin:
+        pdf.add_page()
+
+
+def safe_multi_cell(pdf: FPDF, text: str, h: float = 6, style: str = "", size: int = 9) -> None:
+    if not text:
+        return
+    ensure_vertical_space(pdf, needed_mm=h * 2)
+    set_cjk_font(pdf, style, size)
+    pdf.multi_cell(text_width(pdf), h, text)
+
+
+def _png_pixel_size(path: str) -> tuple[int, int]:
+    with open(path, "rb") as f:
+        sig = f.read(24)
+    if len(sig) < 24 or sig[:8] != b"\x89PNG\r\n\x1a\n":
+        return 800, 600
+    w_px = int.from_bytes(sig[16:20], "big")
+    h_px = int.from_bytes(sig[20:24], "big")
+    return max(w_px, 1), max(h_px, 1)
+
+
+def place_image_fit_page(pdf: FPDF, image_path: str) -> None:
+    """新页放置图片，按页宽缩放，过高则压缩到可打印高度。"""
+    pdf.add_page()
+    ew = text_width(pdf)
+    max_h = pdf.h - pdf.t_margin - pdf.b_margin - 15
+    w_px, h_px = _png_pixel_size(image_path)
+    h_mm = ew * h_px / w_px
+    w_mm = ew
+    if h_mm > max_h:
+        h_mm = max_h
+        w_mm = h_mm * w_px / h_px
+    pdf.image(image_path, w=w_mm, h=h_mm)
+    pdf.ln(4)
+
+
 def write_markdownish_lines(pdf: FPDF, text: str, body_size: int = 9) -> None:
     """将 Markdown 风格文本写入 PDF。"""
     for line in text.split("\n"):
@@ -57,18 +102,25 @@ def write_markdownish_lines(pdf: FPDF, text: str, body_size: int = 9) -> None:
             continue
         if stripped.startswith("# "):
             continue
-        if stripped.startswith("## "):
+        if stripped.startswith("### "):
+            set_cjk_font(pdf, "B", 12)
+            ensure_vertical_space(pdf, 10)
+            pdf.ln(2)
+            safe_multi_cell(pdf, stripped[4:], h=7, style="B", size=12)
+            pdf.ln(1)
+        elif stripped.startswith("## "):
             set_cjk_font(pdf, "B", 14)
-            pdf.ln(4)
-            pdf.multi_cell(0, 8, stripped[3:])
+            ensure_vertical_space(pdf, 12)
+            pdf.ln(2)
+            safe_multi_cell(pdf, stripped[3:], h=8, style="B", size=14)
             pdf.ln(2)
         elif stripped.startswith("- "):
-            set_cjk_font(pdf, size=body_size)
-            pdf.multi_cell(0, 6, f"  • {stripped[2:]}")
+            prefix = "    " if line.startswith("  ") else "  "
+            safe_multi_cell(pdf, f"{prefix}• {stripped[2:]}", h=6, size=body_size - (1 if line.startswith("  ") else 0))
         elif stripped.startswith("> "):
-            set_cjk_font(pdf, size=body_size - 1)
-            pdf.multi_cell(0, 6, stripped)
+            safe_multi_cell(pdf, stripped, h=6, size=max(body_size - 1, 8))
+        elif stripped.startswith("|"):
+            continue
         else:
-            set_cjk_font(pdf, size=body_size)
-            pdf.multi_cell(0, 6, stripped)
+            safe_multi_cell(pdf, stripped, h=6, size=body_size)
             pdf.ln(1)

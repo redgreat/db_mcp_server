@@ -324,34 +324,29 @@ def generate_performance_report(eng: Engine, database: str, db_type: str = "mysq
         "ai_usage": None
     }
 
-    try:
-        from ..ai.llm_client import LLMClient
-        llm = LLMClient()
-    except Exception:
-        llm = None
+    from ..ai.service import is_llm_enabled, llm_ask_with_usage, llm_disabled_message
 
-    if llm and llm.is_enabled():
+    if is_llm_enabled():
+        import json
+
         system_prompt = (
             "你是一个极其资深的 DBA（数据库管理员）。用户会提供一组从数据库中抓取的性能数据，"
             "包括当前连接数、Top 慢查询记录、活跃锁等待链、表碎片/死行率情况等。\n"
             "请你综合这些数据，出具一份清晰、具有高度实操性的《数据库性能诊断与调优报告》。\n"
             "请直接以 Markdown 输出，无需多余寒暄。"
         )
-
-        import json
         user_prompt = "性能采集数据如下：\n"
         user_prompt += f"连接状态：{json.dumps(conn_stats, ensure_ascii=False)}\n"
         user_prompt += f"锁等待：{json.dumps(lock_info, ensure_ascii=False)}\n"
         user_prompt += f"慢查询 Top5：{json.dumps(slow_queries[:5], ensure_ascii=False)}\n"
         user_prompt += f"部分表统计：{json.dumps(table_stats[:5], ensure_ascii=False)}\n"
-
         try:
-            ai_result = llm.ask(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
             result["ai_analysis"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
         except Exception as e:
             result["ai_analysis"] = f"AI 调用失败：{e}"
     else:
-        result["ai_analysis"] = "⚠️ AI 智能分析未启用，请在系统后台配置大模型。"
+        result["ai_analysis"] = llm_disabled_message()
 
     return result

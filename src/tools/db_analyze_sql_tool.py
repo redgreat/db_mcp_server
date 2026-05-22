@@ -249,13 +249,9 @@ def analyze_sql(eng: Engine, database: str, sql: str, db_type: str = "mysql") ->
     )
     result["rewrite_suggestions"] = _generate_rewrite_suggestions(sql)
 
-    try:
-        from ..ai.llm_client import LLMClient
-        llm = LLMClient()
-    except Exception:
-        llm = None
+    from ..ai.service import is_llm_enabled, llm_ask_with_usage, llm_disabled_message
 
-    if llm and llm.is_enabled():
+    if is_llm_enabled():
         system_prompt = (
             "你是一个顶级的数据库性能优化专家。请根据用户提供的 SQL 语句、"
             "涉及表的现有索引结构以及 EXPLAIN 执行计划，诊断潜在的性能瓶颈。\n"
@@ -264,15 +260,12 @@ def analyze_sql(eng: Engine, database: str, sql: str, db_type: str = "mysql") ->
             "2. SQL 语句的高效改写建议（并解释为什么）。\n"
             "请直接输出 Markdown 格式的分析报告，无需多余闲聊。"
         )
-
         user_prompt = f"### SQL 语句\n```sql\n{sql}\n```\n\n### 涉及表的现有索引\n"
         for tbl, idxs in existing_indexes.items():
             user_prompt += f"**表 {tbl}**:\n```json\n{idxs}\n```\n"
-
         user_prompt += f"\n### EXPLAIN 执行计划\n```json\n{result['explain_plan']}\n```\n"
-
         try:
-            ai_result = llm.ask(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
             result["ai_assessment"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
             result["overall_assessment"] = "🌟 [AI 智能审查开启] 已由大模型深度分析，请参阅 ai_assessment。"

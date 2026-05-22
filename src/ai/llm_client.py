@@ -1,5 +1,5 @@
 import logging
-from sqlalchemy import create_engine, select, Table, MetaData
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from openai import OpenAI
 from ..config import Config
@@ -25,8 +25,9 @@ class LLMClient:
             )
 
     def _get_active_config(self):
-        meta = MetaData()
-        llm_configs = Table("llm_configs", meta, autoload_with=self.engine)
+        from ..admin.schema_cache import get_admin_tables
+
+        llm_configs = get_admin_tables(self.engine)["llm_configs"]
         with Session(self.engine) as session:
             row = session.execute(
                 select(llm_configs).where(llm_configs.c.is_active == True)  # noqa: E712

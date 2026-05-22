@@ -184,29 +184,23 @@ def suggest_columns(eng: Engine, database: str, table: str, db_type: str = "mysq
         "ai_usage": None
     }
 
-    try:
-        from ..ai.llm_client import LLMClient
-        llm = LLMClient()
-    except Exception:
-        llm = None
+    from ..ai.service import is_llm_enabled, llm_ask_with_usage, llm_disabled_message
 
-    if llm and llm.is_enabled():
+    if is_llm_enabled():
         system_prompt = (
             "你是一个业务架构师和数据库建模专家。用户将提供一个数据库表的名字及它现有的字段列表。\n"
             "请根据表名推断该表的业务场景（例如用户表、订单表、商品表等），并推荐 3-5 个适合加入该表的常用业务字段。\n"
             "请直接返回 Markdown 格式，包含字段名、建议类型、长度以及推荐理由。\n"
             "切勿闲聊。"
         )
-
         user_prompt = f"表名: {table}\n现有字段:\n```json\n{json.dumps(info['columns'], ensure_ascii=False, indent=2)}\n```"
-
         try:
-            ai_result = llm.ask(system_prompt, user_prompt)
+            ai_result = llm_ask_with_usage(system_prompt, user_prompt)
             result["ai_suggestions"] = ai_result["content"]
             result["ai_usage"] = ai_result["usage"]
         except Exception as e:
             result["ai_suggestions"] = f"AI 调用失败：{e}"
     else:
-        result["ai_suggestions"] = "⚠️ AI 智能分析未启用，请在系统后台配置大模型。"
+        result["ai_suggestions"] = llm_disabled_message()
 
     return result

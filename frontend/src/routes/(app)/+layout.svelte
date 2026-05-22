@@ -7,7 +7,7 @@
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth.svelte';
-	import { api } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -64,7 +64,10 @@
 			try {
 				const data = await api.get<{ user: import('$lib/stores/auth.svelte').User }>('/admin/me');
 				authStore.setUser(data.user);
-			} catch {
+			} catch (err) {
+				if (err instanceof ApiError && err.status === 401) {
+					return;
+				}
 				authStore.logout();
 				goto('/login');
 			}

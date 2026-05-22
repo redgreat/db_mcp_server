@@ -221,41 +221,37 @@ def generate_er_mermaid(eng: Engine, database: str, db_type: str = "mysql",
 
 
 def generate_er_text_description(eng: Engine, database: str, db_type: str = "mysql",
-                                 include_implicit: bool = True) -> str:
-    """生成实体关系的文字描述"""
-    table_columns = get_table_columns_for_er(eng, database, db_type)
-    fks = get_foreign_keys(eng, database, db_type)
+                                 include_implicit: bool = True,
+                                 for_pdf: bool = False) -> str:
+    """生成实体关系的文字描述（按业务域与表备注归纳，非简单表清单）。"""
+    from .er_entity_catalog import build_entity_catalog, format_entity_catalog_markdown
 
-    lines = [f"# 数据库 {database} 实体关系描述\n"]
-    lines.append(f"共 {len(table_columns)} 张表，{len(fks)} 个显式外键关系。\n")
+    catalog = build_entity_catalog(eng, database, db_type)
+    text = format_entity_catalog_markdown(catalog, for_pdf=for_pdf)
 
-    lines.append("## 实体列表\n")
-    for tname, cols in table_columns.items():
-        pk_cols = [c["column_name"] for c in cols if c["key_type"] == "PK"]
-        pk_str = f" (主键: {', '.join(pk_cols)})" if pk_cols else ""
-        lines.append(f"- **{tname}**{pk_str}: {len(cols)} 个字段")
+    if not for_pdf:
+        from .er_entity_catalog import llm_er_business_insights
 
-    if fks:
-        lines.append("\n## 显式外键关系\n")
-        for fk in fks:
-            lines.append(
-                f"- {fk['from_table']}.{fk['from_column']} → "
-                f"{fk['to_table']}.{fk['to_column']} "
-                f"({fk.get('constraint_name', '')})"
-            )
+        insights = llm_er_business_insights(catalog)
+        if insights:
+            text = f"## AI 业务模型解读\n\n{insights}\n\n" + text
 
-    if include_implicit:
+    if include_implicit and not for_pdf:
+        table_columns = get_table_columns_for_er(eng, database, db_type)
+        fks = get_foreign_keys(eng, database, db_type)
         implicit = analyze_implicit_relationships(table_columns, fks)
         if implicit:
-            lines.append("\n## 推断的隐含关系\n")
-            lines.append("> 以下关系基于字段命名约定（如 xxx_id → xxx/xxxs 表）推断，请确认是否正确。\n")
-            for rel in implicit:
-                lines.append(
-                    f"- {rel['from_table']}.{rel['from_column']} → "
+            text += "\n\n## 推断的隐含关系\n"
+            text += "> 基于字段命名（如 xxx_id → xxx 表）推断，请人工确认。\n"
+            for rel in implicit[:80]:
+                text += (
+                    f"\n- {rel['from_table']}.{rel['from_column']} → "
                     f"{rel['to_table']}.{rel['to_column']} (推断)"
                 )
+            if len(implicit) > 80:
+                text += f"\n- … 另有 {len(implicit) - 80} 条推断关系\n"
 
-    return "\n".join(lines)
+    return text
 
 
 def generate_er_mermaid_parts(
@@ -421,13 +417,21 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     from fpdf import FPDF
     from pathlib import Path
 
-    from .pdf_cjk import register_cjk_fonts, set_cjk_font, write_markdownish_lines
+    from .pdf_cjk import (
+        register_cjk_fonts,
+        set_cjk_font,
+        safe_multi_cell,
+        place_image_fit_page,
+        write_markdownish_lines,
+    )
     from .mermaid_render import mmdc_available, render_mermaid_parts_to_pngs
+    from .er_entity_catalog import build_entity_catalog, generate_mermaid_parts_by_domain
 
     logger = logging.getLogger(__name__)
 
+    catalog = build_entity_catalog(eng, database, db_type)
     mermaid_data = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
-    text_desc = generate_er_text_description(eng, database, db_type, include_implicit)
+    text_desc = generate_er_text_description(eng, database, db_type, include_implicit, for_pdf=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_er_{database}_{timestamp}.pdf"
@@ -436,15 +440,13 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     downloads_dir.mkdir(parents=True, exist_ok=True)
     save_path = str(downloads_dir / filename)
 
-    # 可视化用精简图（不含字段块，分片更易渲染）
-    diagram_parts = generate_er_mermaid_parts(
+    # 按业务域分片 ER 图（表名+关系，省略日志/任务表）
+    diagram_parts = generate_mermaid_parts_by_domain(
         eng,
         database,
         db_type,
-        include_columns=False,
         include_implicit=include_implicit,
-        max_tables_per_part=40,
-        max_chars=120000,
+        max_tables_per_part=35,
     )
 
     png_paths: list[str] = []
@@ -461,52 +463,54 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
         register_cjk_fonts(pdf)
         pdf.add_page()
 
-        set_cjk_font(pdf, "B", 18)
-        pdf.cell(0, 12, f"数据库 ER 关系报告 — {database}", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
-        set_cjk_font(pdf, size=10)
-        pdf.multi_cell(
-            0,
-            6,
-            f"共 {mermaid_data['table_count']} 张表，"
-            f"显式外键 {mermaid_data['explicit_relationships']} 个，"
-            f"推断关系 {mermaid_data['implicit_relationships']} 个。",
+        safe_multi_cell(
+            pdf,
+            f"数据库 ER 关系报告 — {database}",
+            h=10,
+            style="B",
+            size=18,
+        )
+        pdf.ln(3)
+        rc = catalog.get("role_counts") or {}
+        safe_multi_cell(
+            pdf,
+            f"物理表 {catalog['table_count']} 张，外键 {catalog['fk_count']} 条；"
+            f"核心实体 {rc.get('core', 0)}、业务表 {rc.get('entity', 0)}、"
+            f"明细 {rc.get('detail', 0)}、日志 {rc.get('log', 0)} 等（见下文角色统计）。",
+            h=6,
+            size=10,
         )
         pdf.ln(3)
 
         write_markdownish_lines(pdf, text_desc)
 
         if png_paths:
-            pdf.add_page()
-            set_cjk_font(pdf, "B", 14)
-            pdf.cell(
-                0,
-                10,
-                f"ER 关系图（共 {len(png_paths)} 张，按表分片）",
-                new_x="LMARGIN",
-                new_y="NEXT",
+            safe_multi_cell(
+                pdf,
+                f"ER 关系图（共 {len(png_paths)} 张，按业务域分片）",
+                h=8,
+                style="B",
+                size=14,
             )
-            pdf.ln(4)
-            page_w = pdf.w - pdf.l_margin - pdf.r_margin
+            pdf.ln(2)
             for i, png in enumerate(png_paths, 1):
-                if pdf.get_y() > 200:
-                    pdf.add_page()
-                    set_cjk_font(pdf, "B", 12)
-                    pdf.cell(0, 8, f"ER 关系图（续 {i}/{len(png_paths)}）", new_x="LMARGIN", new_y="NEXT")
-                    pdf.ln(2)
-                set_cjk_font(pdf, size=9)
-                pdf.cell(0, 6, f"分片 {i} / {len(png_paths)}", new_x="LMARGIN", new_y="NEXT")
-                pdf.ln(2)
-                pdf.image(png, w=page_w)
-                pdf.ln(4)
+                safe_multi_cell(
+                    pdf,
+                    f"分片 {i} / {len(png_paths)}",
+                    h=6,
+                    size=10,
+                )
+                pdf.ln(1)
+                place_image_fit_page(pdf, png)
         else:
             pdf.add_page()
-            set_cjk_font(pdf, "B", 12)
-            pdf.multi_cell(
-                0,
-                8,
+            safe_multi_cell(
+                pdf,
                 "未生成 ER 图片：服务器未安装 mermaid-cli (mmdc)。"
                 "请重新构建镜像，或使用 format=markdown 获取可渲染的 Mermaid 文件。",
+                h=8,
+                style="B",
+                size=12,
             )
 
         pdf_bytes = pdf.output()

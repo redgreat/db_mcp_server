@@ -1,7 +1,19 @@
 /**
  * 调用同源后端 Admin API（FastAPI），携带 Bearer Token。
  */
+import { goto } from '$app/navigation';
 import { authStore } from '$lib/stores/auth.svelte';
+
+let redirectingToLogin = false;
+
+function handleUnauthorized(): void {
+	if (redirectingToLogin) return;
+	redirectingToLogin = true;
+	authStore.logout();
+	goto('/login').finally(() => {
+		redirectingToLogin = false;
+	});
+}
 
 export class ApiError extends Error {
 	status: number;
@@ -50,6 +62,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 	if (!res.ok) {
 		const msg = await parseDetail(res);
+		if (res.status === 401) {
+			handleUnauthorized();
+		}
 		throw new ApiError(msg, res.status);
 	}
 
