@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: DockerfileLocal
     container_name: db_mcp_server
+    init: true
     ports:
       - "3000:3000"
     environment:

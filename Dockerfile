@@ -25,7 +25,7 @@ FROM python:3.13-slim
 
 # supervisor + 中文字体 + Chromium（Mermaid 渲染 ER 图）
 RUN apt-get update && \
-    apt-get install -y supervisor fonts-noto-cjk fonts-wqy-microhei fontconfig chromium && \
+    apt-get install -y supervisor tini fonts-noto-cjk fonts-wqy-microhei fontconfig chromium && \
     rm -rf /var/lib/apt/lists/*
 
 # Mermaid CLI：将 erDiagram 渲染为 PNG 嵌入 PDF
@@ -83,5 +83,6 @@ ENV LOG_DIR=/var/log/db_mcp_server
 
 EXPOSE 3000
 
-# 使用supervisord启动
+# tini 作 PID 1 回收 mmdc/Chromium 子进程；supervisord 只管理 web/init_db
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
 CMD ["supervisord", "-c", "/app/docker/supervisord.conf"]

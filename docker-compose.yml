@@ -2,6 +2,8 @@ services:
   db-mcp-server:
     image: registry.cn-hangzhou.aliyuncs.com/redgreat/db_mcp:latest
     container_name: db_mcp_server
+    # 由 tini/docker-init 回收 mmdc/Chromium 孤儿进程，避免 supervisord 刷 reaped unknown pid
+    init: true
     ports:
       - "3000:3000"
     environment:

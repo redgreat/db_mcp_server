@@ -51,8 +51,11 @@ def register_cjk_fonts(pdf: FPDF) -> str:
 
     try:
         pdf.add_font(FONT_FAMILY, style="", fname=font_path, **kwargs)
+        # fpdf2 将 family 截断为 6 字符；set_font(..., "B") 会查找 notoscB，须单独注册
+        pdf.add_font(FONT_FAMILY, style="B", fname=font_path, **kwargs)
     except TypeError:
         pdf.add_font(FONT_FAMILY, "", font_path, **kwargs)
+        pdf.add_font(FONT_FAMILY, "B", font_path, **kwargs)
     except Exception as e:
         raise RuntimeError(f"加载中文字体失败: {font_path}: {e}") from e
 
