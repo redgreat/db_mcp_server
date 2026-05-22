@@ -172,7 +172,10 @@ MCP_TOOLS = [
 
     MCPTool(
         name="export_db_doc",
-        description="导出数据库说明文档。生成包含所有表汇总（表名、备注）和每张表字段详情（字段名、类型、长度、可空、默认值、备注）的文档。支持 markdown 和 pdf 两种格式。",
+        description=(
+            "导出数据库说明文档（数据字典）。含表汇总与字段详情。"
+            "upload_to_oss=true 或已启用 object_storage 时上传 OSS 并返回下载链接。"
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -192,7 +195,11 @@ MCP_TOOLS = [
                 "save_path": {
                     "type": "string",
                     "description": "可选。本地保存路径（绝对路径）。如果提供，服务器将直接把文件保存到此路径。"
-                }
+                },
+                "upload_to_oss": {
+                    "type": "boolean",
+                    "description": "是否上传到 OSS 并返回下载链接。默认：object_storage.enabled 时为 true"
+                },
             },
             "required": ["connection_id"]
         }
@@ -250,7 +257,10 @@ MCP_TOOLS = [
 
     MCPTool(
         name="generate_data_flow",
-        description="生成数据库数据流图。分析表结构、外键、触发器、视图、存储过程之间的数据流向关系，输出 Mermaid 流程图代码和文字描述。可以向用户确认各处理流程和数据流向是否正确，逐步完善。",
+        description=(
+            "生成数据库数据流图。分析表、外键、触发器、视图、存储过程之间的数据流向。"
+            "upload_to_oss=true 或已启用 object_storage 时上传 OSS 并返回 Markdown/PDF 下载链接。"
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -275,7 +285,11 @@ MCP_TOOLS = [
                 "save_path": {
                     "type": "string",
                     "description": "可选。本地保存路径（绝对路径）。如果提供，服务器将直接把文件保存到此路径。"
-                }
+                },
+                "upload_to_oss": {
+                    "type": "boolean",
+                    "description": "是否上传到 OSS 并返回下载链接。默认：object_storage.enabled 时为 true"
+                },
             },
             "required": ["connection_id"]
         }

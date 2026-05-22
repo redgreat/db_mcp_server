@@ -605,10 +605,69 @@ async def _execute_mcp_tool_inner(
                     result = {"success": True, "message": "SQL 执行成功"}
 
         elif tool_name == "export_db_doc":
+            import time as _time
+
             from ..tools.db_doc_tool import generate_db_doc_markdown, export_db_doc_pdf
+            from ..tools.file_upload import build_download_mcp_content, upload_artifact
+
             database = arguments.get("database") or conn_row["database"]
             fmt = arguments.get("format", "markdown")
             save_path = arguments.get("save_path")
+            upload_to_oss = arguments.get("upload_to_oss")
+            if upload_to_oss is None:
+                upload_to_oss = bool(cfg.object_storage and cfg.object_storage.enabled)
+
+            if upload_to_oss:
+                if fmt == "pdf":
+                    pdf_result = export_db_doc_pdf(
+                        engine, database, conn_row["db_type"], save_path
+                    )
+                    import base64 as _b64
+
+                    file_data = _b64.b64decode(pdf_result["pdf_base64"])
+                    filename = pdf_result.get("filename") or f"db_doc_{database}.pdf"
+                    content_type = "application/pdf"
+                    extra = {
+                        "size_bytes": pdf_result.get("size_bytes", len(file_data)),
+                        "table_count": pdf_result.get("table_count"),
+                    }
+                else:
+                    md = generate_db_doc_markdown(
+                        engine, database, conn_row["db_type"]
+                    )
+                    file_data = md.encode("utf-8")
+                    ts = _time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"db_doc_{database}_{ts}.md"
+                    content_type = "text/markdown; charset=utf-8"
+                    extra = {
+                        "size_bytes": len(file_data),
+                        "table_count": md.count("\n## "),
+                    }
+                meta = upload_artifact(
+                    cfg,
+                    category="doc",
+                    filename=filename,
+                    data=file_data,
+                    content_type=content_type,
+                )
+                extra["provider"] = meta.get("provider")
+                extra["object_key"] = meta.get("object_key")
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation=f"mcp_{tool_name}",
+                    status="success",
+                    access_key=access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    duration_ms=duration_ms,
+                )
+                return build_download_mcp_content(
+                    title="数据字典",
+                    download_url=meta["download_url"],
+                    filename=filename,
+                    fmt=fmt,
+                    extra=extra,
+                )
 
             if fmt == "pdf":
                 pdf_result = export_db_doc_pdf(engine, database, conn_row["db_type"], save_path)
@@ -793,14 +852,78 @@ async def _execute_mcp_tool_inner(
                 )
 
         elif tool_name == "generate_data_flow":
+            import time as _time
+
             from ..tools.db_dataflow_tool import (
-                generate_dataflow_mermaid, generate_dataflow_description,
-                export_dataflow_report_pdf
+                generate_dataflow_mermaid,
+                generate_dataflow_description,
+                export_dataflow_report_pdf,
             )
+            from ..tools.file_upload import build_download_mcp_content, upload_artifact
+
             database = arguments.get("database") or conn_row["database"]
             output_type = arguments.get("output_type", "both")
             fmt = arguments.get("format", "markdown")
             save_path = arguments.get("save_path")
+            upload_to_oss = arguments.get("upload_to_oss")
+            if upload_to_oss is None:
+                upload_to_oss = bool(cfg.object_storage and cfg.object_storage.enabled)
+
+            if upload_to_oss:
+                if fmt == "pdf":
+                    pdf_result = export_dataflow_report_pdf(
+                        engine, database, conn_row["db_type"], save_path
+                    )
+                    import base64 as _b64
+
+                    file_data = _b64.b64decode(pdf_result["pdf_base64"])
+                    filename = pdf_result.get("filename") or f"db_dataflow_{database}.pdf"
+                    content_type = "application/pdf"
+                    extra = {"size_bytes": pdf_result.get("size_bytes", len(file_data))}
+                else:
+                    mer = generate_dataflow_mermaid(
+                        engine, database, conn_row["db_type"]
+                    )
+                    desc = generate_dataflow_description(
+                        engine, database, conn_row["db_type"]
+                    )
+                    md = (
+                        f"# 数据库数据流图 — {database}\n\n"
+                        f"```mermaid\n{mer['mermaid']}\n```\n\n{desc}\n"
+                    )
+                    file_data = md.encode("utf-8")
+                    ts = _time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"db_dataflow_{database}_{ts}.md"
+                    content_type = "text/markdown; charset=utf-8"
+                    extra = {
+                        "size_bytes": len(file_data),
+                        "table_count": mer.get("table_count"),
+                    }
+                meta = upload_artifact(
+                    cfg,
+                    category="dataflow",
+                    filename=filename,
+                    data=file_data,
+                    content_type=content_type,
+                )
+                extra["provider"] = meta.get("provider")
+                extra["object_key"] = meta.get("object_key")
+                duration_ms = int((time.time() - start_time) * 1000)
+                audit_logger.log(
+                    operation=f"mcp_{tool_name}",
+                    status="success",
+                    access_key=access_key,
+                    client_ip=client_ip,
+                    connection_id=connection_id,
+                    duration_ms=duration_ms,
+                )
+                return build_download_mcp_content(
+                    title="数据流图",
+                    download_url=meta["download_url"],
+                    filename=filename,
+                    fmt=fmt,
+                    extra=extra,
+                )
 
             if fmt == "pdf":
                 pdf_result = export_dataflow_report_pdf(engine, database, conn_row["db_type"], save_path)
