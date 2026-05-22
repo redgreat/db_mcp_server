@@ -25,7 +25,7 @@ FROM python:3.13-slim
 
 # supervisor + 中文字体 + Chromium（Mermaid 渲染 ER 图）
 RUN apt-get update && \
-    apt-get install -y supervisor fonts-noto-cjk fontconfig curl chromium && \
+    apt-get install -y supervisor fonts-noto-cjk fonts-wqy-microhei fontconfig chromium && \
     rm -rf /var/lib/apt/lists/*
 
 # Mermaid CLI：将 erDiagram 渲染为 PNG 嵌入 PDF
@@ -49,21 +49,23 @@ COPY . /app
 # 复制前端构建产物（覆盖 src/static）
 COPY --from=frontend-builder /app/src/static /app/src/static
 
-# 简体中文字体：优先拉取 NotoSansSC OTF（fpdf2 用 TTC 易叠字乱码）
+# 中文字体：从 apt 复制到项目目录（不依赖外网下载，避免 GitHub 404）
 RUN mkdir -p /app/src/static/fonts && \
-    SC_OTF="/app/src/static/fonts/NotoSansSC-Regular.otf" && \
-    (curl -fsSL --retry 3 --retry-delay 5 \
-      -o "$SC_OTF" \
-      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf" \
-      || true) && \
-    if [ ! -s "$SC_OTF" ]; then \
-      SC_SYS_OTF=$(find /usr/share/fonts -type f -iname 'NotoSansSC-Regular.otf' 2>/dev/null | head -1); \
-      SC_TTF=$(find /usr/share/fonts -type f -iname 'NotoSansSC-Regular.ttf' 2>/dev/null | head -1); \
-      if [ -n "$SC_SYS_OTF" ]; then cp "$SC_SYS_OTF" "$SC_OTF"; \
-      elif [ -n "$SC_TTF" ]; then cp "$SC_TTF" /app/src/static/fonts/NotoSansSC-Regular.ttf; \
-      else echo "ERROR: 无法获取 NotoSansSC 字体" >&2; find /usr/share/fonts -iname '*noto*' 2>/dev/null | head -20; exit 1; \
+    set -e; \
+    DEST=""; \
+    for name in NotoSansCJK-Regular.ttc wqy-microhei.ttc; do \
+      SRC=$(find /usr/share/fonts -type f -iname "$name" 2>/dev/null | head -1); \
+      if [ -n "$SRC" ]; then \
+        cp "$SRC" "/app/src/static/fonts/$name"; \
+        DEST="/app/src/static/fonts/$name"; \
+        break; \
       fi; \
-    fi && \
+    done; \
+    if [ -z "$DEST" ] || [ ! -s "$DEST" ]; then \
+      echo "ERROR: 未找到 fonts-noto-cjk / fonts-wqy-microhei 字体" >&2; \
+      find /usr/share/fonts -iname '*noto*' -o -iname '*wqy*' 2>/dev/null | head -20 >&2; \
+      exit 1; \
+    fi; \
     ls -la /app/src/static/fonts/
 
 # 创建必要的目录并设置权限

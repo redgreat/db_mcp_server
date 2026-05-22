@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Optional
 
@@ -24,24 +25,29 @@ def _strip_md(text: str) -> str:
     return text.strip()
 
 
+def _ttc_collection_index(font_path: str) -> int:
+    """TTC 内嵌字体索引：Noto Sans CJK 简体一般为 2，文泉驿等为 0。"""
+    base = os.path.basename(font_path).lower()
+    if "notosanscjk" in base or "noto sans cjk" in base.replace("_", " "):
+        return 2
+    return 0
+
+
 def register_cjk_fonts(pdf: FPDF) -> str:
-    """注册简体中文 TrueType/OpenType（禁止默认 TTC 错 face）。"""
+    """注册中文字体（镜像内为 apt 提供的 NotoSansCJK / 文泉驿 TTC）。"""
     font_path = _find_cjk_font()
     if not font_path:
         raise RuntimeError(
-            "未找到可用的简体中文字体（需 NotoSansSC .ttf/.otf）。"
-            "请重新构建镜像或放入 src/static/fonts/NotoSansSC-Regular.otf"
+            "未找到可用的中文字体。请确认镜像已安装 fonts-noto-cjk 且 "
+            "src/static/fonts/ 下存在 NotoSansCJK-Regular.ttc"
         )
 
     lower = font_path.lower()
     kwargs: dict = {}
     if lower.endswith(".ttc") or lower.endswith(".otc"):
-        # NotoSansCJK.ttc：face 0 在部分环境为日文字形，易叠字乱码
-        kwargs["collection_font_number"] = 2
-        logger.warning(
-            "使用 TTC 字体 collection_font_number=2（建议改用 NotoSansSC .otf）: %s",
-            font_path,
-        )
+        idx = _ttc_collection_index(font_path)
+        kwargs["collection_font_number"] = idx
+        logger.info("TTC 字体 collection_font_number=%s: %s", idx, font_path)
 
     try:
         pdf.add_font(FONT_FAMILY, style="", fname=font_path, **kwargs)
