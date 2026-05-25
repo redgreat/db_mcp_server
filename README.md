@@ -10,7 +10,9 @@
 - 📊 多数据库：支持 MySQL 与 PostgreSQL
 - 📡 标准 MCP：提供 HTTP API 与 SSE 标准协议
 - 📝 审计日志：完整记录操作与耗时
-- 🌐 Web 管理：图形化管理连接、密钥、权限、白名单
+- 🌐 Web 管理：图形化管理连接、密钥、权限、白名单、**大模型配置**
+- 🤖 智能分析：SQL 审查、性能/参数调优、字段建议、ER 业务解读（可选 LLM，见 `src/ai/`）
+- 📦 对象存储：文档/ER/报表可上传 OSS 并返回下载链接（`object_storage` 配置）
 - 🐳 Docker 部署：supervisord 管理，非 root 运行
 
 ## 架构图
@@ -47,7 +49,7 @@ graph TB
             SECRET["密码加解密"]
         end
 
-        subgraph Tools_Layer["工具层 · src/tools/"]
+        subgraph Tools_Layer["工具层 · src/tools/ + src/ai/"]
             META_TOOL["db_metadata_tool.py 元数据"]
             DB_TOOL["db_tool.py 查询"]
             DOC_TOOL["db_doc_tool.py 文档导出"]
@@ -55,6 +57,7 @@ graph TB
             FLOW_TOOL["db_dataflow_tool.py 数据流"]
             SUGGEST_TOOL["db_suggest_tool.py 字段建议"]
             PERF_TOOL["db_performance_tool.py 性能分析"]
+            AI_SVC["ai/service.py 大模型"]
         end
 
         subgraph Core["核心层"]
@@ -245,6 +248,7 @@ db_mcp_server/
 │   └── init_admin_db.py # 管理库初始化（PostgreSQL）
 ├── data/                # 数据目录（可选挂载）
 ├── logs/                # 日志目录（挂载卷）
+├── .ide_mcp_rules.md    # AI IDE 调用 MCP 工具的规范（建议加入 Cursor Rules）
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -354,9 +358,75 @@ Cursor 等 IDE：在 MCP 远程服务器配置中填写 **`https://<域名>/mcp/
 }
 ```
 
-返回中 connections 的数量即为当前密钥可访问的数据库连接数。
+返回中 `connections` 数组长度即为当前密钥可访问的连接数。
+
+### 9. MCP 工具一览（共 20 个）
+
+工具定义见 `src/mcp/tools.py`；IDE 智能体调用规范见仓库根目录 **[`.ide_mcp_rules.md`](.ide_mcp_rules.md)**；命令行调用见 **[`docs/MCP客户端调用说明.md`](docs/MCP客户端调用说明.md)**。
+
+| 工具名 | 说明 | 权限 | 依赖 LLM |
+|--------|------|------|----------|
+| `list_connections` | 列出当前密钥可访问的连接 | - | |
+| `list_databases` | 列出库 | 读 | |
+| `list_tables` / `list_views` / `list_procedures` | 表 / 视图 / 存储过程 | 读 | |
+| `describe_table` | 表结构 | 读 | |
+| `execute_query` | 只读 SELECT 等 | 读 | |
+| `execute_sql` | 任意 SQL（含 DML/DDL） | 写 / DDL | |
+| `export_db_doc` | 数据字典（markdown/pdf，可 OSS） | 读 | |
+| `generate_er_diagram` | ER 图（Mermaid/pdf，可 OSS） | 读 | 可选（业务域解读） |
+| `generate_data_flow` | 数据流图（markdown/pdf，可 OSS） | 读 | |
+| `suggest_columns` | 加字段 DDL 与依赖分析 | 读 | 可选（生成 DDL 时） |
+| `analyze_performance` | 连接/慢 SQL/锁/表统计等 | 读 | 可选 |
+| `analyze_sql` | EXPLAIN + 规则建议 | 读 | 可选 |
+| `analyze_db_config` | 参数与运行态调优 | 读 | 可选 |
+| `compare_schemas` | 两连接 Schema 对比与同步 DDL | 读 | |
+| `generate_mock_data` | 生成测试 INSERT（不执行） | 读 | |
+| `backup_table` | CTAS 表备份 | DDL | |
+| `generate_db_rule` | 生成 `RULE.md`（项目 + 管理库） | 读 | |
+| `render_report_oss` | 查库生成 xlsx/csv 上传 OSS | 读 | |
+
+**大模型**：在 Web 管理端 **「大模型配置」**（`/ai-settings`）激活模型并填写 API Key 后，上表中标注的工具会附加 `ai_assessment` / `ai_analysis` / `ai_suggestions` 等字段；未启用时仍返回规则分析结果。调用日志可在 `/llm-logs` 查看。
+
+**对象存储**：`export_db_doc`、`generate_er_diagram`、`generate_data_flow`、`render_report_oss` 支持 `upload_to_oss`；`config.yml` 中 `object_storage.enabled=true` 时默认上传并返回下载链接。
+
+### 10. 测试 MCP 工具
+
+**在 Cursor / Trae 中（推荐）**：配置 MCP 的 `url` + `X-Access-Key` 后，在对话中让 AI 调用工具即可（与生产用法一致）。
+
+**列出工具定义（HTTP）**：
+
+```bash
+curl -s http://localhost:3000/mcp/tools -H "X-Access-Key: api_key_001"
+```
+
+**同步调用单个工具（HTTP，`POST /mcp/call`）**：
+
+```bash
+curl -s -X POST http://localhost:3000/mcp/call \
+  -H "X-Access-Key: api_key_001" \
+  -H "Content-Type: application/json" \
+  -d '{"tool":"list_connections","arguments":{}}'
+```
+
+**命令行（SSE，适合 CI）**：
+
+```bash
+# PowerShell
+$env:MCP_SSE_URL = "http://localhost:3000/mcp/sse"
+$env:MCP_ACCESS_KEY = "api_key_001"
+python script/mcp_call.py --tool list_connections
+python script/mcp_call.py --tool analyze_sql --args "{\"connection_id\":1,\"sql\":\"SELECT 1\"}"
+```
+
+建议测试顺序：只读元数据 → `execute_query` → `analyze_sql` / `analyze_db_config`（验证 LLM）→ 文档/ER（耗时较长）→ 写操作类（测试库 + `allow_ddl`）。
 
 ## API 文档（摘要）
+
+### MCP 与查询
+
+- GET `/mcp/tools`（Headers: `X-Access-Key`）— 列出工具 schema
+- POST `/mcp/call`（Headers: `X-Access-Key`；Body: `tool`, `arguments`）— 同步调用工具
+- GET `/mcp/sse`、POST `/mcp/message` — 标准 MCP SSE / JSON-RPC
 
 ### 查询与元数据
 
@@ -382,9 +452,14 @@ Cursor 等 IDE：在 MCP 远程服务器配置中填写 **`https://<域名>/mcp/
 - GET/POST/DELETE /admin/permissions
 - GET/POST/DELETE /admin/whitelist
 - GET /admin/audit/logs
+- 大模型：管理端 `/ai-settings`、调用日志 `/llm-logs`（对应 `src/admin/` 与 `src/ai/`）
 - GET /admin、GET /admin/（**302** 至 `/connections`，兼容旧书签；SPA 入口为 `/login` 等）
 
-更多说明见仓库内 **`docs/IDE智能体与MCPServer配置指南.md`**。
+更多说明见：
+
+- [`docs/IDE智能体与MCPServer配置指南.md`](docs/IDE智能体与MCPServer配置指南.md) — IDE 接入
+- [`docs/MCP客户端调用说明.md`](docs/MCP客户端调用说明.md) — `script/mcp_call.py` 与 OSS/PDF 注意项
+- [`.ide_mcp_rules.md`](.ide_mcp_rules.md) — AI 智能体工具调用规范（建议加入 Cursor Rules）
 
 ## 安全特性
 
@@ -438,6 +513,9 @@ uvicorn src.server:app --reload --host 0.0.0.0 --port 3000
 - 风险 SQL 拦截：检查语句是否包含危险操作或注入模式
 - 权限不足：检查 select_only/allow_ddl 授权是否满足
 - 连接失败：核对 host、port、db_type、用户与密码；检查网络与数据库白名单
+- MCP 工具无 AI 分析：在管理后台检查「大模型配置」是否已激活且 API Key 有效
+- PDF/ER 乱码或空白：镜像需含中文字体与 `mermaid-cli`（见 `docs/MCP客户端调用说明.md`）
+- 报表/文档无下载链接：检查 `config.yml` 的 `object_storage` 是否启用
 
 ## 许可证
 
