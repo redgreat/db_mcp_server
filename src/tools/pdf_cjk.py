@@ -71,7 +71,7 @@ def register_cjk_fonts(pdf: FPDF) -> str:
     if not font_path:
         raise RuntimeError(
             "未找到可用的中文字体。请重新构建镜像，确保 "
-            "src/static/fonts/NotoSansSC-Regular.otf 存在"
+            "src/static/fonts/NotoSansCJKsc-Regular.otf 存在"
         )
 
     lower = font_path.lower()

@@ -184,19 +184,6 @@ def ensure_schema(engine: Engine):
     # 创建所有表
     meta.create_all(engine)
 
-    from sqlalchemy import inspect, text
-    insp = inspect(engine)
-    cols = {c["name"] for c in insp.get_columns("access_keys")}
-    if "sql_risk_check_enabled" not in cols:
-        with engine.connect() as conn:
-            conn.execute(
-                text(
-                    "ALTER TABLE access_keys "
-                    "ADD COLUMN IF NOT EXISTS sql_risk_check_enabled BOOLEAN DEFAULT TRUE"
-                )
-            )
-            conn.commit()
-
 
 def create_default_admin(engine: Engine, master_key: str = None, username: str = "admin", password: str = "admin123"):
     """创建默认管理员账号

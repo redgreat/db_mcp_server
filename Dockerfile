@@ -52,15 +52,15 @@ COPY --from=frontend-builder /app/src/static /app/src/static
 # 中文字体：优先内置 Noto Sans SC .otf（fpdf2 用 TTC 易叠字乱码），TTC 仅作兜底
 RUN mkdir -p /app/src/static/fonts && \
     set -e; \
-    OTF_URL="https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"; \
-    if ! curl -fsSL --retry 3 -o /app/src/static/fonts/NotoSansSC-Regular.otf "$OTF_URL"; then \
+    OTF_URL="https://mirrors.ctan.org/fonts/notocjksc/NotoSansCJKsc-Regular.otf"; \
+    if ! curl -fsSL --retry 3 -o /app/src/static/fonts/NotoSansCJKsc-Regular.otf "$OTF_URL"; then \
       echo "WARN: OTF 下载失败，尝试从 apt 复制 TTC 兜底" >&2; \
-      for name in NotoSansCJK-Regular.ttc wqy-microhei.ttc; do \
+      for name in NotoSansCJKsc-Regular.ttc wqy-microhei.ttc; do \
         SRC=$(find /usr/share/fonts -type f -iname "$name" 2>/dev/null | head -1); \
         if [ -n "$SRC" ]; then cp "$SRC" "/app/src/static/fonts/$name"; break; fi; \
       done; \
     fi; \
-    if [ ! -s /app/src/static/fonts/NotoSansSC-Regular.otf ] && \
+    if [ ! -s /app/src/static/fonts/NotoSansCJKsc-Regular.otf ] && \
        [ ! -s /app/src/static/fonts/NotoSansCJK-Regular.ttc ] && \
        [ ! -s /app/src/static/fonts/wqy-microhei.ttc ]; then \
       echo "ERROR: 未找到可用中文字体" >&2; \

@@ -19,6 +19,7 @@
 		ak: string;
 		description: string;
 		enabled: boolean;
+		sql_risk_check_enabled: boolean;
 		created_by: number | null;
 		created_at: string;
 	}
@@ -67,6 +68,7 @@
 	let showAddKeyModal = $state(false);
 	let newAk = $state('');
 	let newDesc = $state('');
+	let newSqlRiskCheckEnabled = $state(true);
 	let addKeyLoading = $state(false);
 
 	// 删除密钥
@@ -129,10 +131,16 @@
 		e.preventDefault();
 		addKeyLoading = true;
 		try {
-			await api.post('/admin/keys', { ak: newAk, description: newDesc, enabled: true });
+			await api.post('/admin/keys', {
+				ak: newAk,
+				description: newDesc,
+				enabled: true,
+				sql_risk_check_enabled: newSqlRiskCheckEnabled
+			});
 			showAddKeyModal = false;
 			newAk = '';
 			newDesc = '';
+			newSqlRiskCheckEnabled = true;
 			toast('密钥创建成功', 'success');
 			load(1);
 		} catch (err) {
@@ -147,6 +155,16 @@
 			await api.patch(`/admin/keys/${id}/toggle`, { enabled });
 			keys = keys.map((k) => (k.id === id ? { ...k, enabled } : k));
 			toast(`密钥已${enabled ? '启用' : '禁用'}`, 'success');
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : '操作失败', 'error');
+		}
+	}
+	
+	async function toggleSqlRiskCheck(id: number, enabled: boolean) {
+		try {
+			await api.patch(`/admin/keys/${id}/sql_risk_check`, { sql_risk_check_enabled: enabled });
+			keys = keys.map((k) => (k.id === id ? { ...k, sql_risk_check_enabled: enabled } : k));
+			toast(`SQL 风险监测已${enabled ? '开启' : '关闭'}`, 'success');
 		} catch (err) {
 			toast(err instanceof ApiError ? err.message : '操作失败', 'error');
 		}
@@ -339,6 +357,7 @@
 						<th class="admin-th">密钥 (AK)</th>
 						<th class="admin-th">描述</th>
 						<th class="admin-th">状态</th>
+						<th class="admin-th">SQL 风险监测</th>
 						<th class="admin-th">授权连接</th>
 						<th class="admin-th">IP 白名单</th>
 						{#if authStore.isAdmin}
@@ -364,6 +383,14 @@
 									<div class="w-1.5 h-1.5 rounded-full {key.enabled ? 'bg-success pulse-dot' : 'bg-error'}"></div>
 									<span class="text-xs {key.enabled ? 'text-success' : 'text-error'}">
 										{key.enabled ? '启用' : '禁用'}
+									</span>
+								</div>
+							</td>
+							<td>
+								<div class="flex items-center gap-2">
+									<div class="w-1.5 h-1.5 rounded-full {key.sql_risk_check_enabled ? 'bg-success' : 'bg-base-content/30'}"></div>
+									<span class="text-xs {key.sql_risk_check_enabled ? 'text-success' : 'text-base-content/50'}">
+										{key.sql_risk_check_enabled ? '开启' : '关闭'}
 									</span>
 								</div>
 							</td>
@@ -436,6 +463,13 @@
 										>
 											{key.enabled ? '禁用' : '启用'}
 										</button>
+										<button
+											type="button"
+											class="btn-act {key.sql_risk_check_enabled ? 'btn-act-warning' : 'btn-act-success'}"
+											onclick={() => toggleSqlRiskCheck(key.id, !key.sql_risk_check_enabled)}
+										>
+											{key.sql_risk_check_enabled ? '关闭风控' : '开启风控'}
+										</button>
 										<button type="button" class="btn-act btn-act-error" onclick={() => (deleteKeyId = key.id)}>删除</button>
 									</RowActions>
 								</td>
@@ -465,6 +499,13 @@
 					<label class="label pb-1 text-sm" for="new-desc">描述</label>
 					<input id="new-desc" type="text" class="input input-bordered input-sm"
 						placeholder="如：给数据分析助手使用" bind:value={newDesc} />
+				</div>
+				<div class="form-control mb-4">
+					<label class="label cursor-pointer justify-start gap-3">
+						<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={newSqlRiskCheckEnabled} />
+						<span class="label-text text-sm">启用 SQL 风险监测</span>
+					</label>
+					<div class="label"><span class="label-text-alt text-base-content/40">关闭后将不再拦截风险 SQL（仍保留白名单、审计日志、权限校验）</span></div>
 				</div>
 				<div class="modal-action mt-0">
 					<button type="button" class="btn btn-ghost btn-sm" onclick={() => (showAddKeyModal = false)}>取消</button>
