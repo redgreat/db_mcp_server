@@ -3,7 +3,7 @@
 符合 Model Context Protocol 规范
 """
 from fastapi import APIRouter, Header, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, Union
 from ..security.client_ip import get_real_client_ip
@@ -168,11 +168,9 @@ def build_standard_mcp_router(
         body_str = await request.body()
         logger.info(f"MCP Request: {body_str.decode()}")
 
-        # 检查会话是否存在
-        if not session_id or session_id not in SESSIONS:
-            raise HTTPException(status_code=400, detail="Invalid session_id or connection expired")
-
-        queue = SESSIONS[session_id]
+        queue = None
+        if session_id:
+            queue = SESSIONS.get(session_id)
 
         try:
             result = await handle_mcp_request(
@@ -190,7 +188,13 @@ def build_standard_mcp_router(
             if mcp_request.id is None:
                 return Response(status_code=202)
 
-            # 重要：将响应消息放入对应会话的发送队列中，由 SSE 流发出
+            if queue is None:
+                resp = MCPResponse(
+                    id=mcp_request.id,
+                    result=result
+                )
+                return JSONResponse(resp.model_dump(exclude_none=True))
+
             resp = MCPResponse(
                 id=mcp_request.id,
                 result=result
@@ -212,6 +216,8 @@ def build_standard_mcp_router(
                     "message": str(e)
                 }
             )
+            if queue is None:
+                return JSONResponse(resp.model_dump(exclude_none=True))
             await queue.put(resp.model_dump(exclude_none=True))
             return Response(status_code=202)
 
