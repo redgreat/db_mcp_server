@@ -141,9 +141,10 @@ def create_app() -> FastAPI:
             if is_ddl and not perm['allow_ddl']:
                 raise HTTPException(status_code=403, detail="该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
 
-            sec = intercept_sql(sql, {"key": x_access_key})
-            if not sec["safe"]:
-                raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
+            if perm.get("sql_risk_check_enabled", True):
+                sec = intercept_sql(sql, {"key": x_access_key})
+                if not sec["safe"]:
+                    raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
             eng, db_name, _ = _resolve_engine(cfg, qp, connection_id)
             rows = qp.run_query(eng, sql)
 
@@ -202,9 +203,10 @@ def create_app() -> FastAPI:
         if is_ddl and not perm['allow_ddl']:
             raise HTTPException(status_code=403, detail="该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
 
-        sec = intercept_sql(sql, {"key": x_access_key})
-        if not sec["safe"]:
-            raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
+        if perm.get("sql_risk_check_enabled", True):
+            sec = intercept_sql(sql, {"key": x_access_key})
+            if not sec["safe"]:
+                raise HTTPException(status_code=400, detail=f"风险SQL 阈值:{sec['risk']}")
         eng, _, _ = _resolve_engine(cfg, qp, connection_id)
 
         client_ip = get_real_client_ip(request)
@@ -416,7 +418,8 @@ def _check_permission(cfg: Config, ak: str, connection_id: int):
         # 返回权限详情
         return {
             "select_only": p["select_only"],
-            "allow_ddl": p.get("allow_ddl", False)
+            "allow_ddl": p.get("allow_ddl", False),
+            "sql_risk_check_enabled": k.get("sql_risk_check_enabled", True)
         }
 
 

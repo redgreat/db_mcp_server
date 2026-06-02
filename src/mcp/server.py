@@ -276,13 +276,14 @@ def _execute_tool(
             result = {"database": database, "table": table_name, "columns": info["columns"]}
 
         elif tool_name == "execute_query":
-            perm_checker.check_permission(access_key, connection_id)
+            perm = perm_checker.check_permission(access_key, connection_id)
             sql = args.get("sql")
             if not sql:
                 raise Exception("缺少参数: sql")
-            sec = intercept_sql(sql, {"key": access_key})
-            if not sec["safe"]:
-                raise Exception(f"风险SQL 阈值:{sec['risk']}")
+            if perm.get("sql_risk_check_enabled", True):
+                sec = intercept_sql(sql, {"key": access_key})
+                if not sec["safe"]:
+                    raise Exception(f"风险SQL 阈值:{sec['risk']}")
             eng, _, _ = _get_engine(cfg, qp, connection_id)
             rows = qp.run_query(eng, sql)
             masked_rows = data_masker.mask_results(rows)
@@ -293,10 +294,11 @@ def _execute_tool(
             if not sql:
                 raise Exception("缺少参数: sql")
             require_ddl = perm_checker.is_ddl_sql(sql)
-            perm_checker.check_permission(access_key, connection_id, require_ddl=require_ddl)
-            sec = intercept_sql(sql, {"key": access_key})
-            if not sec["safe"]:
-                raise Exception(f"风险SQL 阈值:{sec['risk']}")
+            perm = perm_checker.check_permission(access_key, connection_id, require_ddl=require_ddl)
+            if perm.get("sql_risk_check_enabled", True):
+                sec = intercept_sql(sql, {"key": access_key})
+                if not sec["safe"]:
+                    raise Exception(f"风险SQL 阈值:{sec['risk']}")
             eng, _, _ = _get_engine(cfg, qp, connection_id)
             from sqlalchemy import text
             with eng.connect() as conn:

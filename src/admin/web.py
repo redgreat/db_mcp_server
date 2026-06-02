@@ -24,6 +24,7 @@ class CreateKeyRequest(BaseModel):
     ak: str
     description: str = ""
     enabled: bool = True
+    sql_risk_check_enabled: bool = True
 
 
 class ChangePasswordRequest(BaseModel):
@@ -674,6 +675,7 @@ def build_admin_router(cfg: Config):
                 ak=req.ak,
                 description=req.description,
                 enabled=req.enabled,
+                sql_risk_check_enabled=req.sql_risk_check_enabled,
                 created_by=user_data["user_id"]
             ))
             s.commit()
@@ -688,6 +690,34 @@ def build_admin_router(cfg: Config):
         )
 
         logger.info(f"创建访问密钥: {req.ak} by {user_data['username']}")
+        return {"ok": True}
+
+    @router.patch("/admin/keys/{key_id}/sql_risk_check")
+    async def update_key_sql_risk_check(
+        key_id: int,
+        request: Request,
+        authorization: str = Header(None)
+    ):
+        """更新访问密钥的SQL风险监测开关（仅管理员）"""
+        user_data = auth_service.require_admin(authorization)
+        body = await request.json()
+        enabled = bool(body.get("sql_risk_check_enabled", True))
+        keys = tbl["access_keys"]
+        with Session(engine) as s:
+            s.execute(
+                update(keys)
+                .where(keys.c.id == key_id)
+                .values(sql_risk_check_enabled=enabled)
+            )
+            s.commit()
+        system_logger.log(
+            operation="toggle_sql_risk_check",
+            resource_type="access_key",
+            user_id=user_data["user_id"],
+            username=user_data["username"],
+            resource_id=key_id,
+            details={"sql_risk_check_enabled": enabled}
+        )
         return {"ok": True}
 
     @router.patch("/admin/keys/{key_id}/toggle")

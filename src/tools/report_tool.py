@@ -83,14 +83,25 @@ def generate_and_upload_report(
     from ..security.interceptor import intercept_sql
     from .db_tool import run_select
     from .object_storage import ObjectStorageClient
+    from sqlalchemy import Table, MetaData, select
+    from sqlalchemy.orm import Session
+    from sqlalchemy import create_engine as _create_engine
     source = args.get("source") or {}
     fields = args.get("fields") or []
     if not fields:
         raise ValueError("fields required")
     sql = _build_select_sql(source, fields)
-    sec = intercept_sql(sql, {"key": access_key})
-    if not sec.get("safe"):
-        raise RuntimeError(f"risk sql: {sec.get('risk')}")
+    admin_engine = _create_engine(cfg.get_admin_db_url(), pool_pre_ping=True)
+    meta = MetaData()
+    keys = Table("access_keys", meta, autoload_with=admin_engine)
+    with Session(admin_engine) as s:
+        k = s.execute(select(keys).where(keys.c.ak == access_key)).mappings().first()
+    if not k:
+        raise RuntimeError("invalid access key")
+    if k.get("sql_risk_check_enabled", True):
+        sec = intercept_sql(sql, {"key": access_key})
+        if not sec.get("safe"):
+            raise RuntimeError(f"risk sql: {sec.get('risk')}")
     rows = run_select(eng, sql)
     headers = []
     for f in fields:

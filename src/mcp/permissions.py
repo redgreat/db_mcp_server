@@ -72,7 +72,9 @@ class MCPPermissionChecker:
                     detail="该访问密钥无 DDL 权限，不能执行 CREATE/DROP/ALTER 等操作"
                 )
 
-            return dict(perm)
+            out = dict(perm)
+            out["sql_risk_check_enabled"] = key_row.get("sql_risk_check_enabled", True)
+            return out
 
     def is_ddl_sql(self, sql: str) -> bool:
         """判断SQL是否为DDL语句"""

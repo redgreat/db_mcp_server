@@ -31,6 +31,7 @@ def ensure_schema(engine: Engine):
         Column("ak", String(128), nullable=False, unique=True, comment="访问密钥(Access Key)"),
         Column("description", String(255), nullable=True, comment="密钥描述"),
         Column("enabled", Boolean, default=True, index=True, comment="是否启用"),
+        Column("sql_risk_check_enabled", Boolean, default=True, index=True, comment="是否启用SQL风险监测"),
         Column("created_by", Integer, ForeignKey("admin_users.id"), nullable=True, index=True, comment="创建者用户ID"),
         Column("created_at", DateTime(timezone=True), server_default=func.now(), comment="创建时间"),
     )
@@ -182,6 +183,19 @@ def ensure_schema(engine: Engine):
 
     # 创建所有表
     meta.create_all(engine)
+
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    cols = {c["name"] for c in insp.get_columns("access_keys")}
+    if "sql_risk_check_enabled" not in cols:
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE access_keys "
+                    "ADD COLUMN IF NOT EXISTS sql_risk_check_enabled BOOLEAN DEFAULT TRUE"
+                )
+            )
+            conn.commit()
 
 
 def create_default_admin(engine: Engine, master_key: str = None, username: str = "admin", password: str = "admin123"):

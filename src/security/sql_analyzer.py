@@ -36,6 +36,31 @@ HIGH_RISK_PATTERNS = [
     r"INFORMATION_SCHEMA",  # 元数据访问
 ]
 
+_SYMBOL_KEYWORDS = {"--", "/*", "*/", "#"}
+
+
+def _keyword_to_regex(keyword: str) -> re.Pattern:
+    sql_kw = keyword.upper().strip()
+    if sql_kw in _SYMBOL_KEYWORDS:
+        return re.compile(re.escape(sql_kw))
+    if " " in sql_kw:
+        parts = [re.escape(p) for p in sql_kw.split() if p]
+        pattern = r"\b" + r"\s+".join(parts) + r"\b"
+        return re.compile(pattern)
+    pattern = r"(?<![A-Z0-9_])" + re.escape(sql_kw) + r"(?![A-Z0-9_])"
+    return re.compile(pattern)
+
+
+_DANGEROUS_KEYWORD_REGEX = {kw: _keyword_to_regex(kw) for kw in DANGEROUS_KEYWORDS}
+
+
+def _contains_keyword(sql_upper: str, keyword: str) -> bool:
+    rx = _DANGEROUS_KEYWORD_REGEX.get(keyword)
+    if not rx:
+        rx = _keyword_to_regex(keyword)
+        _DANGEROUS_KEYWORD_REGEX[keyword] = rx
+    return bool(rx.search(sql_upper))
+
 
 def is_safe_sql(sql: str) -> bool:
     """检查SQL是否安全（增强版）
@@ -50,7 +75,7 @@ def is_safe_sql(sql: str) -> bool:
 
     # 检查危险关键字
     for keyword in DANGEROUS_KEYWORDS:
-        if keyword in sql_upper:
+        if _contains_keyword(sql_upper, keyword):
             return False
 
     # 检查高风险模式
@@ -74,7 +99,7 @@ def risk_score(sql: str) -> int:
 
     # 危险关键字检查 (每个+20分)
     for keyword in DANGEROUS_KEYWORDS:
-        if keyword in sql_upper:
+        if _contains_keyword(sql_upper, keyword):
             score += 20
 
     # 高风险模式检查 (每个+15分)
@@ -116,7 +141,7 @@ def get_risk_details(sql: str) -> dict:
 
     # 检测到的危险关键字
     for keyword in DANGEROUS_KEYWORDS:
-        if keyword in sql_upper:
+        if _contains_keyword(sql_upper, keyword):
             details["dangerous_keywords"].append(keyword)
 
     # 检测到的风险模式

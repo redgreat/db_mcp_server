@@ -559,10 +559,10 @@ async def _execute_mcp_tool_inner(
             if perm.get('select_only', True) and not is_select:
                 raise Exception("该连接仅允许 SELECT 查询，不允许执行修改操作")
 
-            # SQL 安全检查
-            sec = intercept_sql(sql, {"key": access_key})
-            if not sec["safe"]:
-                raise Exception(f"风险 SQL，阈值: {sec['risk']}")
+            if key_row.get("sql_risk_check_enabled", True):
+                sec = intercept_sql(sql, {"key": access_key})
+                if not sec["safe"]:
+                    raise Exception(f"风险 SQL，阈值: {sec['risk']}")
 
             # 执行查询
             rows = qp.run_query(engine, sql)
@@ -587,10 +587,10 @@ async def _execute_mcp_tool_inner(
             if is_ddl and not perm.get("allow_ddl", False):
                 raise Exception("该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
 
-            # SQL 安全检查
-            sec = intercept_sql(sql, {"key": access_key})
-            if not sec["safe"]:
-                raise Exception(f"风险 SQL，阈值: {sec['risk']}")
+            if key_row.get("sql_risk_check_enabled", True):
+                sec = intercept_sql(sql, {"key": access_key})
+                if not sec["safe"]:
+                    raise Exception(f"风险 SQL，阈值: {sec['risk']}")
 
             # 执行 SQL
             with engine.connect() as conn:
