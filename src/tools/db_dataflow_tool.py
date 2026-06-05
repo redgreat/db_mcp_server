@@ -283,17 +283,60 @@ def generate_dataflow_description(eng: Engine, database: str, db_type: str = "my
     return "\n".join(lines)
 
 
+def _render_dataflow_image(
+    eng: Engine,
+    database: str,
+    db_type: str,
+    mermaid_source: str,
+    tmp_dir: str,
+) -> Optional[str]:
+    """优先 tbls → mmdc 渲染数据流图，返回图片路径。"""
+    import os
+    import shutil
+    import subprocess
+    from .tbls_render import tbls_available, render_er_svg_from_engine
+    from .mermaid_render import mmdc_available, render_mermaid_to_png
+
+    if tbls_available():
+        tbls_output = os.path.join(tmp_dir, "dataflow_tbls.svg")
+        result = render_er_svg_from_engine(
+            eng, database, db_type, tbls_output,
+        )
+        if result["success"] and result.get("file_path"):
+            fp = result["file_path"]
+            if fp.endswith(".svg") and shutil.which("rsvg-convert"):
+                png_fp = fp.replace(".svg", ".png")
+                try:
+                    subprocess.run(
+                        ["rsvg-convert", "-f", "png", "-o", png_fp, fp],
+                        capture_output=True, timeout=60,
+                    )
+                    if os.path.isfile(png_fp):
+                        return png_fp
+                except Exception:
+                    pass
+            elif fp.endswith(".png"):
+                return fp
+        logging.getLogger(__name__).warning("tbls 数据流图渲染失败，回退 mmdc")
+
+    if mmdc_available():
+        candidate = os.path.join(tmp_dir, "dataflow.png")
+        if render_mermaid_to_png(mermaid_source, candidate):
+            return candidate
+
+    return None
+
+
 def export_dataflow_report_pdf(
     eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None
 ) -> Dict[str, Any]:
-    """生成 PDF 格式的数据流报告，返回 base64 编码的 PDF 内容"""
+    """生成 PDF 格式的数据流报告（中文 + tbls/mmdc 渲染数据流图）。"""
     import os
     import tempfile
     from fpdf import FPDF
     from pathlib import Path
 
     from .pdf_cjk import register_cjk_fonts, set_cjk_font, write_markdownish_lines
-    from .mermaid_render import mmdc_available, render_mermaid_to_png
 
     logger = logging.getLogger(__name__)
 
@@ -308,11 +351,10 @@ def export_dataflow_report_pdf(
     save_path = str(downloads_dir / filename)
 
     png_path: Optional[str] = None
-    with tempfile.TemporaryDirectory(prefix="flow_mmd_") as tmp:
-        if mmdc_available():
-            candidate = os.path.join(tmp, "dataflow.png")
-            if render_mermaid_to_png(mermaid_data["mermaid"], candidate):
-                png_path = candidate
+    with tempfile.TemporaryDirectory(prefix="flow_img_") as tmp:
+        png_path = _render_dataflow_image(
+            eng, database, db_type, mermaid_data["mermaid"], tmp,
+        )
 
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=12)
@@ -331,6 +373,14 @@ def export_dataflow_report_pdf(
             pdf.ln(4)
             page_w = pdf.w - pdf.l_margin - pdf.r_margin
             pdf.image(png_path, w=page_w)
+        else:
+            pdf.add_page()
+            set_cjk_font(pdf, "B", 12)
+            pdf.cell(
+                0, 10,
+                "未生成数据流图。tbls/mmdc 均不可用或渲染失败。",
+                new_x="LMARGIN", new_y="NEXT",
+            )
 
         pdf_bytes = pdf.output()
         if isinstance(pdf_bytes, str):

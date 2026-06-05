@@ -407,12 +407,87 @@ def save_er_mermaid_split(
     return saved
 
 
+def _render_er_images(
+    eng: Engine,
+    database: str,
+    db_type: str,
+    tmp_dir: str,
+    include_implicit: bool,
+) -> list[str]:
+    """优先 SchemaCrawler → tbls → mmdc 渲染 ER 图，返回图片路径列表。"""
+    import os
+    import shutil
+    import subprocess
+    from .schemacrawler_render import schemacrawler_available, render_er_diagram_from_engine
+    from .tbls_render import tbls_available, render_er_svg_from_engine
+    from .mermaid_render import mmdc_available, render_mermaid_parts_to_pngs
+    from .er_entity_catalog import generate_mermaid_parts_by_domain
+
+    image_paths: list[str] = []
+
+    if schemacrawler_available():
+        sc_output = os.path.join(tmp_dir, "er_schemacrawler.png")
+        result = render_er_diagram_from_engine(
+            eng, database, db_type, sc_output,
+            output_format="png",
+            title=f"ER Diagram - {database}",
+            show_columns=True,
+        )
+        if result["success"]:
+            image_paths.append(result["file_path"])
+            logger.info("ER 图使用 SchemaCrawler 渲染成功")
+            return image_paths
+        logger.warning("SchemaCrawler 渲染失败，回退: %s", result.get("error"))
+
+    if tbls_available():
+        tbls_output = os.path.join(tmp_dir, "er_tbls.svg")
+        result = render_er_svg_from_engine(
+            eng, database, db_type, tbls_output,
+        )
+        if result["success"] and result.get("file_path"):
+            fp = result["file_path"]
+            if fp.endswith(".svg") and shutil.which("rsvg-convert"):
+                png_fp = fp.replace(".svg", ".png")
+                try:
+                    subprocess.run(
+                        ["rsvg-convert", "-f", "png", "-o", png_fp, fp],
+                        capture_output=True, timeout=60,
+                    )
+                    if os.path.isfile(png_fp):
+                        image_paths.append(png_fp)
+                        logger.info("ER 图使用 tbls+rsvg-convert 渲染成功")
+                        return image_paths
+                except Exception:
+                    pass
+            elif fp.endswith(".png"):
+                image_paths.append(fp)
+                logger.info("ER 图使用 tbls 渲染成功")
+                return image_paths
+        logger.warning("tbls 渲染失败，回退: %s", result.get("error"))
+
+    if mmdc_available():
+        diagram_parts = generate_mermaid_parts_by_domain(
+            eng, database, db_type,
+            include_implicit=include_implicit,
+            max_tables_per_part=35,
+        )
+        image_paths = render_mermaid_parts_to_pngs(diagram_parts, tmp_dir, prefix="er")
+        if image_paths:
+            logger.info("ER 图使用 mmdc 渲染成功")
+        return image_paths
+
+    logger.warning("SchemaCrawler/tbls/mmdc 均不可用，PDF 将不含 ER 图")
+    return []
+
+
 def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
                          include_columns: bool = True,
                          include_implicit: bool = True,
                          save_path: Optional[str] = None) -> Dict[str, Any]:
-    """生成 PDF 格式的 ER 图报告（中文 + 分片 Mermaid 渲染为图片）。"""
+    """生成 PDF 格式的 ER 图报告（中文 + SchemaCrawler/tbls/mmdc 渲染为图片）。"""
     import os
+    import shutil
+    import subprocess
     import tempfile
     from fpdf import FPDF
     from pathlib import Path
@@ -423,8 +498,7 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
         place_image_fit_page,
         write_er_pdf_summary,
     )
-    from .mermaid_render import mmdc_available, render_mermaid_parts_to_pngs
-    from .er_entity_catalog import build_entity_catalog, generate_mermaid_parts_by_domain
+    from .er_entity_catalog import build_entity_catalog
 
     logger = logging.getLogger(__name__)
 
@@ -439,23 +513,9 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
     downloads_dir.mkdir(parents=True, exist_ok=True)
     save_path = str(downloads_dir / filename)
 
-    # 按业务域分片 ER 图（表名+关系，省略日志/任务表）
-    diagram_parts = generate_mermaid_parts_by_domain(
-        eng,
-        database,
-        db_type,
-        include_implicit=include_implicit,
-        max_tables_per_part=35,
-    )
-
-    png_paths: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="er_mmd_") as tmp:
-        if mmdc_available():
-            png_paths = render_mermaid_parts_to_pngs(
-                diagram_parts, tmp, prefix="er"
-            )
-        else:
-            logger.warning("未安装 mmdc，PDF 将不含 ER 矢量图，仅文字说明")
+    image_paths: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="er_img_") as tmp:
+        image_paths = _render_er_images(eng, database, db_type, tmp, include_implicit)
 
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=14)
@@ -475,27 +535,28 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
 
         write_er_pdf_summary(pdf, catalog)
 
-        if png_paths:
+        if image_paths:
             pdf.add_page()
             safe_multi_cell(
                 pdf,
-                f"ER 关系图（共 {len(png_paths)} 张，按业务域分片）",
+                f"ER 关系图（共 {len(image_paths)} 张）",
                 bold=True,
                 size=14,
             )
             pdf.ln(2)
-            for i, png in enumerate(png_paths, 1):
+            for i, img in enumerate(image_paths, 1):
                 place_image_fit_page(
                     pdf,
-                    png,
-                    caption=f"分片 {i} / {len(png_paths)}",
+                    img,
+                    caption=f"分片 {i} / {len(image_paths)}",
                 )
         else:
             pdf.add_page()
             safe_multi_cell(
                 pdf,
-                "未生成 ER 关系图图片。mmdc/Chromium 在容器中可能失败（请查看日志）。"
-                "可重新构建镜像并确认 mmdc 可用，或使用 format=markdown 导出。",
+                "未生成 ER 关系图图片。SchemaCrawler/tbls/mmdc 均不可用或渲染失败。"
+                "请检查镜像中是否安装了 Java+SchemaCrawler 或 Go+tbls 或 mmdc+Chromium，"
+                "或使用 format=markdown 导出。",
                 bold=True,
                 size=12,
             )

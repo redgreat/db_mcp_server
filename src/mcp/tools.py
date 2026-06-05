@@ -547,6 +547,36 @@ MCP_TOOLS = [
         }
     ),
     MCPTool(
+        name="export_ddl",
+        description="导出数据库完整 DDL（表、视图、存储过程、触发器、索引等），生成 .sql 文件。支持 MySQL 和 PostgreSQL。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "type": "integer",
+                    "description": "数据库连接 ID"
+                },
+                "database": {
+                    "type": "string",
+                    "description": "数据库名称（可选，默认使用连接的数据库）"
+                },
+                "schema": {
+                    "type": "string",
+                    "description": "PostgreSQL schema 名称（可选，默认 public）"
+                },
+                "save_path": {
+                    "type": "string",
+                    "description": "可选。本地保存路径（绝对路径）。"
+                },
+                "upload_to_oss": {
+                    "type": "boolean",
+                    "description": "是否上传到 OSS 并返回下载链接。默认：object_storage.enabled 时为 true"
+                }
+            },
+            "required": ["connection_id"]
+        }
+    ),
+    MCPTool(
         name="generate_db_rule",
         description="生成数据库 RULE.md 规则文档，可保存到项目目录和/或管理数据库，作为报表生成上下文记忆。",
         input_schema={

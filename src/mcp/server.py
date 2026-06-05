@@ -459,8 +459,16 @@ def _execute_tool(
                 if columns_to_add:
                     result = analyze_impact(eng, database, table_name, columns_to_add, db_type)
                 else:
-                    # 没有传 columns 就走智能推荐
                     result = suggest_columns(eng, database, table_name, db_type)
+
+        elif tool_name == "export_ddl":
+            perm_checker.check_permission(access_key, connection_id)
+            eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
+            database = args.get("database") or db_name
+            schema = args.get("schema")
+            from ..tools.db_ddl_tool import export_ddl_to_file
+            ddl_result = export_ddl_to_file(eng, database, db_type, schema)
+            result = ddl_result
 
         elif tool_name == "analyze_performance":
             perm_checker.check_permission(access_key, connection_id)
