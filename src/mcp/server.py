@@ -9,6 +9,7 @@ from .permissions import MCPPermissionChecker
 from ..db.db_operations import QueryProxy
 from ..tools.db_metadata_tool import list_databases, list_tables, list_views, list_procedures, table_info
 from ..security.interceptor import intercept_sql
+from ..security.sql_guard import ensure_read_only_sql, ensure_sql_allowed
 from ..security.ip_whitelist import IPWhitelistChecker
 from ..security.data_masker import DataMasker
 from ..security.client_ip import get_real_client_ip
@@ -280,6 +281,7 @@ def _execute_tool(
             sql = args.get("sql")
             if not sql:
                 raise Exception("缺少参数: sql")
+            ensure_read_only_sql(sql)
             if perm.get("sql_risk_check_enabled", True):
                 sec = intercept_sql(sql, {"key": access_key})
                 if not sec["safe"]:
@@ -295,6 +297,11 @@ def _execute_tool(
                 raise Exception("缺少参数: sql")
             require_ddl = perm_checker.is_ddl_sql(sql)
             perm = perm_checker.check_permission(access_key, connection_id, require_ddl=require_ddl)
+            ensure_sql_allowed(
+                sql,
+                select_only=perm.get("select_only", True),
+                allow_ddl=perm.get("allow_ddl", False)
+            )
             if perm.get("sql_risk_check_enabled", True):
                 sec = intercept_sql(sql, {"key": access_key})
                 if not sec["safe"]:

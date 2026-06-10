@@ -8,6 +8,7 @@ from .logging_utils import get_logger
 from .admin.web import build_admin_router
 from .db.db_operations import QueryProxy
 from .security.interceptor import intercept_sql
+from .security.sql_guard import ensure_sql_allowed
 from .security.secret import decrypt_text
 from .logging.audit_logger import AuditLogger
 from .security.ip_whitelist import IPWhitelistChecker
@@ -128,18 +129,15 @@ def create_app() -> FastAPI:
             # 检查权限并获取权限详情
             perm = _check_permission(cfg, x_access_key, connection_id)
 
-            # 检查 SQL 类型并验证权限
-            sql_upper = sql.strip().upper()
-            is_select = sql_upper.startswith('SELECT') or sql_upper.startswith(
-                'SHOW') or sql_upper.startswith('DESCRIBE') or sql_upper.startswith('EXPLAIN')
-            is_ddl = any(sql_upper.startswith(kw) for kw in ['CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME'])
-
             # 权限验证
-            if perm['select_only'] and not is_select:
-                raise HTTPException(status_code=403, detail="该连接仅允许 SELECT 查询，不允许执行修改操作")
-
-            if is_ddl and not perm['allow_ddl']:
-                raise HTTPException(status_code=403, detail="该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
+            try:
+                ensure_sql_allowed(
+                    sql,
+                    select_only=perm["select_only"],
+                    allow_ddl=perm["allow_ddl"]
+                )
+            except PermissionError as e:
+                raise HTTPException(status_code=403, detail=str(e))
 
             if perm.get("sql_risk_check_enabled", True):
                 sec = intercept_sql(sql, {"key": x_access_key})
@@ -191,17 +189,14 @@ def create_app() -> FastAPI:
         # 检查权限并获取权限详情
         perm = _check_permission(cfg, x_access_key, connection_id)
 
-        # 检查 SQL 类型并验证权限
-        sql_upper = sql.strip().upper()
-        is_select = sql_upper.startswith('SELECT') or sql_upper.startswith(
-            'SHOW') or sql_upper.startswith('DESCRIBE') or sql_upper.startswith('EXPLAIN')
-        is_ddl = any(sql_upper.startswith(kw) for kw in ['CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME'])
-
-        if perm['select_only'] and not is_select:
-            raise HTTPException(status_code=403, detail="该连接仅允许 SELECT 查询，不允许执行修改操作")
-
-        if is_ddl and not perm['allow_ddl']:
-            raise HTTPException(status_code=403, detail="该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
+        try:
+            ensure_sql_allowed(
+                sql,
+                select_only=perm["select_only"],
+                allow_ddl=perm["allow_ddl"]
+            )
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e))
 
         if perm.get("sql_risk_check_enabled", True):
             sec = intercept_sql(sql, {"key": x_access_key})

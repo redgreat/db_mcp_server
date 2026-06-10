@@ -5,6 +5,7 @@ from sqlalchemy import Table, MetaData, select, and_
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from ..security.sql_guard import is_ddl_sql
 
 
 class MCPPermissionChecker:
@@ -78,11 +79,4 @@ class MCPPermissionChecker:
 
     def is_ddl_sql(self, sql: str) -> bool:
         """判断SQL是否为DDL语句"""
-        sql_upper = sql.strip().upper()
-        ddl_keywords = ['CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME']
-
-        for keyword in ddl_keywords:
-            if sql_upper.startswith(keyword):
-                return True
-
-        return False
+        return is_ddl_sql(sql)

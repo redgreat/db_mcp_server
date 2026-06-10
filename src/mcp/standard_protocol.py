@@ -364,6 +364,7 @@ async def _execute_mcp_tool_inner(
     from sqlalchemy.orm import Session
     from ..security.secret import decrypt_text
     from ..security.interceptor import intercept_sql
+    from ..security.sql_guard import ensure_read_only_sql, ensure_sql_allowed
 
     start_time = time.time()
 
@@ -556,14 +557,7 @@ async def _execute_mcp_tool_inner(
             if not sql:
                 raise Exception("缺少参数: sql")
 
-            # 检查 SQL 类型
-            sql_upper = sql.strip().upper()
-            is_select = sql_upper.startswith('SELECT') or sql_upper.startswith(
-                'SHOW') or sql_upper.startswith('DESCRIBE') or sql_upper.startswith('EXPLAIN')
-
-            # 权限验证
-            if perm.get('select_only', True) and not is_select:
-                raise Exception("该连接仅允许 SELECT 查询，不允许执行修改操作")
+            ensure_read_only_sql(sql)
 
             if key_row.get("sql_risk_check_enabled", True):
                 sec = intercept_sql(sql, {"key": access_key})
@@ -580,18 +574,11 @@ async def _execute_mcp_tool_inner(
             if not sql:
                 raise Exception("缺少参数: sql")
 
-            # 检查 SQL 类型
-            sql_upper = sql.strip().upper()
-            is_select = sql_upper.startswith('SELECT') or sql_upper.startswith(
-                'SHOW') or sql_upper.startswith('DESCRIBE') or sql_upper.startswith('EXPLAIN')
-            is_ddl = any(sql_upper.startswith(kw) for kw in ["CREATE", "DROP", "ALTER", "TRUNCATE", "RENAME"])
-
-            # 权限验证
-            if perm.get('select_only', True) and not is_select:
-                raise Exception("该连接仅允许 SELECT 查询，不允许执行修改操作")
-
-            if is_ddl and not perm.get("allow_ddl", False):
-                raise Exception("该连接不允许执行 DDL 操作（CREATE/DROP/ALTER等）")
+            ensure_sql_allowed(
+                sql,
+                select_only=perm.get("select_only", True),
+                allow_ddl=perm.get("allow_ddl", False)
+            )
 
             if key_row.get("sql_risk_check_enabled", True):
                 sec = intercept_sql(sql, {"key": access_key})
@@ -1037,6 +1024,11 @@ async def _execute_mcp_tool_inner(
             suffix = arguments.get("suffix")
             if not table_name:
                 raise Exception("缺少参数: table")
+            ensure_sql_allowed(
+                "CREATE TABLE backup AS SELECT 1",
+                select_only=perm.get("select_only", True),
+                allow_ddl=perm.get("allow_ddl", False)
+            )
             result = do_backup(engine, database, table_name, conn_row["db_type"], suffix)
 
         elif tool_name == "analyze_db_config":
