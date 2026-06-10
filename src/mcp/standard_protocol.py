@@ -1035,6 +1035,44 @@ async def _execute_mcp_tool_inner(
             from ..tools.db_config_tool import analyze_db_config
             result = analyze_db_config(engine, conn_row["db_type"])
 
+        elif tool_name == "export_ddl":
+            database = arguments.get("database") or conn_row["database"]
+            schema = arguments.get("schema")
+            from ..tools.db_ddl_tool import export_ddl_to_file
+            result = export_ddl_to_file(engine, database, conn_row["db_type"], schema)
+
+        elif tool_name == "generate_db_rule":
+            database = arguments.get("database") or conn_row["database"]
+            save_to_project = arguments.get("save_to_project", True)
+            save_to_admin = arguments.get("save_to_admin", True)
+            project_base = arguments.get("project_base")
+            title = arguments.get("title")
+            version = arguments.get("version")
+            tags = arguments.get("tags") or {}
+            from ..tools.db_rule_tool import generate_and_save_rule
+            result = generate_and_save_rule(
+                eng=engine,
+                admin_engine=admin_engine,
+                database=database,
+                db_type=conn_row["db_type"],
+                connection_id=connection_id,
+                save_to_project=save_to_project,
+                save_to_admin=save_to_admin,
+                project_base=project_base,
+                title=title,
+                version=version,
+                tags=tags
+            )
+
+        elif tool_name == "render_report_oss":
+            from ..tools.report_tool import generate_and_upload_report
+            result = generate_and_upload_report(
+                eng=engine,
+                access_key=access_key,
+                cfg=cfg,
+                args=arguments,
+            )
+
         else:
             raise Exception(f"未知工具: {tool_name}")
 
