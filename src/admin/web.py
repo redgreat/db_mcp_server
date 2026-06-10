@@ -500,8 +500,11 @@ def build_admin_router(cfg: Config):
         date_to: Optional[str] = None,
         authorization: str = Header(None),
     ):
-        """大模型调用明细（分页）"""
-        auth_service.require_admin(authorization)
+        """大模型调用明细（管理员看全部，普通用户只看自己有权密钥的日志）"""
+        current_user = auth_service.get_current_user(authorization)
+        user_id = current_user["user_id"]
+        user_role = current_user.get("role", "user")
+
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
         offset = (page - 1) * page_size
@@ -511,37 +514,43 @@ def build_admin_router(cfg: Config):
 
         logs = tbl["llm_call_logs"]
         with Session(engine) as s:
+            allowed_aks = None
+            if user_role != "admin":
+                allowed_aks = s.execute(
+                    select(tbl["access_keys"].c.ak)
+                    .join(tbl["access_key_users"], tbl["access_keys"].c.id == tbl["access_key_users"].c.key_id)
+                    .where(tbl["access_key_users"].c.user_id == user_id)
+                ).scalars().all()
+
             q = select(logs)
+            count_stmt = select(func.count()).select_from(logs)
+
+            if user_role != "admin":
+                if allowed_aks:
+                    q = q.where(logs.c.access_key.in_(allowed_aks))
+                    count_stmt = count_stmt.where(logs.c.access_key.in_(allowed_aks))
+                else:
+                    q = q.where(logs.c.id == -1)
+                    count_stmt = count_stmt.where(logs.c.id == -1)
+
             if access_key:
                 q = q.where(logs.c.access_key.ilike(f"%{access_key}%"))
-            if date_from:
-                try:
-                    dt = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
-                    q = q.where(logs.c.timestamp >= dt)
-                except ValueError:
-                    pass
-            if date_to:
-                try:
-                    dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
-                    q = q.where(logs.c.timestamp <= dt)
-                except ValueError:
-                    pass
-
-            count_stmt = select(func.count()).select_from(logs)
-            if access_key:
                 count_stmt = count_stmt.where(logs.c.access_key.ilike(f"%{access_key}%"))
             if date_from:
                 try:
                     dt = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+                    q = q.where(logs.c.timestamp >= dt)
                     count_stmt = count_stmt.where(logs.c.timestamp >= dt)
                 except ValueError:
                     pass
             if date_to:
                 try:
                     dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+                    q = q.where(logs.c.timestamp <= dt)
                     count_stmt = count_stmt.where(logs.c.timestamp <= dt)
                 except ValueError:
                     pass
+
             total = s.execute(count_stmt).scalar() or 0
             rows = s.execute(
                 q.order_by(desc(logs.c.timestamp)).offset(offset).limit(page_size)
@@ -559,8 +568,11 @@ def build_admin_router(cfg: Config):
         days: int = 14,
         authorization: str = Header(None),
     ):
-        """按日汇总 Token 消耗（可按访问密钥、提供商分组）"""
-        auth_service.require_admin(authorization)
+        """按日汇总 Token 消耗（管理员看全部，普通用户只看自己有权密钥）"""
+        current_user = auth_service.get_current_user(authorization)
+        user_id = current_user["user_id"]
+        user_role = current_user.get("role", "user")
+
         days = min(max(1, days), 90)
 
         from sqlalchemy import func, cast, Date
@@ -571,6 +583,14 @@ def build_admin_router(cfg: Config):
         since = now_app() - timedelta(days=days)
 
         with Session(engine) as s:
+            allowed_aks = None
+            if user_role != "admin":
+                allowed_aks = s.execute(
+                    select(tbl["access_keys"].c.ak)
+                    .join(tbl["access_key_users"], tbl["access_keys"].c.id == tbl["access_key_users"].c.key_id)
+                    .where(tbl["access_key_users"].c.user_id == user_id)
+                ).scalars().all()
+
             day_col = cast(func.date_trunc("day", logs.c.timestamp), Date).label("day")
             stmt = (
                 select(
@@ -584,9 +604,17 @@ def build_admin_router(cfg: Config):
                     func.coalesce(func.sum(logs.c.total_tokens), 0).label("total_tokens"),
                 )
                 .where(logs.c.timestamp >= since)
-                .group_by(day_col, logs.c.access_key, logs.c.provider, logs.c.model_name)
-                .order_by(day_col.desc(), func.sum(logs.c.total_tokens).desc())
             )
+
+            if user_role != "admin":
+                if allowed_aks:
+                    stmt = stmt.where(logs.c.access_key.in_(allowed_aks))
+                else:
+                    stmt = stmt.where(logs.c.id == -1)
+
+            stmt = stmt.group_by(day_col, logs.c.access_key, logs.c.provider, logs.c.model_name)
+            stmt = stmt.order_by(day_col.desc(), func.sum(logs.c.total_tokens).desc())
+
             rows = s.execute(stmt).mappings().all()
 
         items = []
@@ -1309,17 +1337,11 @@ def build_admin_router(cfg: Config):
         operation: Optional[str] = None,
         authorization: str = Header(None)
     ):
-        """查询审计日志（仅管理员，支持分页）
+        """查询审计日志（管理员看全部，普通用户只看自己有权密钥的日志）"""
+        current_user = auth_service.get_current_user(authorization)
+        user_id = current_user["user_id"]
+        user_role = current_user.get("role", "user")
 
-        Args:
-            page: 页码（从1开始）
-            page_size: 每页记录数（最大1000）
-            access_key: 按访问密钥过滤（可选）
-            operation: 按操作类型过滤（可选）
-        """
-        auth_service.require_admin(authorization)  # 仅管理员可访问
-
-        # 参数校验
         page = max(1, page)
         page_size = min(max(1, page_size), 1000)
         offset = (page - 1) * page_size
@@ -1329,21 +1351,34 @@ def build_admin_router(cfg: Config):
         audit_logs = tbl["audit_logs"]
 
         with Session(engine) as s:
-            query = select(audit_logs).order_by(desc(audit_logs.c.timestamp))
+            # 普通用户：只看分配给自己密钥的日志
+            allowed_aks = None
+            if user_role != "admin":
+                allowed_aks = s.execute(
+                    select(tbl["access_keys"].c.ak)
+                    .join(tbl["access_key_users"], tbl["access_keys"].c.id == tbl["access_key_users"].c.key_id)
+                    .where(tbl["access_key_users"].c.user_id == user_id)
+                ).scalars().all()
 
-            # 添加过滤条件
+            query = select(audit_logs).order_by(desc(audit_logs.c.timestamp))
+            count_stmt = select(func.count()).select_from(audit_logs)
+
+            if user_role != "admin":
+                if allowed_aks:
+                    query = query.where(audit_logs.c.access_key.in_(allowed_aks))
+                    count_stmt = count_stmt.where(audit_logs.c.access_key.in_(allowed_aks))
+                else:
+                    query = query.where(audit_logs.c.id == -1)
+                    count_stmt = count_stmt.where(audit_logs.c.id == -1)
+
             if access_key:
                 query = query.where(audit_logs.c.access_key == access_key)
-            if operation:
-                query = query.where(audit_logs.c.operation == operation)
-
-            count_stmt = select(func.count()).select_from(audit_logs)
-            if access_key:
                 count_stmt = count_stmt.where(audit_logs.c.access_key == access_key)
             if operation:
+                query = query.where(audit_logs.c.operation == operation)
                 count_stmt = count_stmt.where(audit_logs.c.operation == operation)
-            total = s.execute(count_stmt).scalar()
 
+            total = s.execute(count_stmt).scalar()
             rows = s.execute(query.offset(offset).limit(page_size)).mappings().all()
 
         return {
