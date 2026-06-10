@@ -342,6 +342,10 @@ def create_app() -> FastAPI:
         qp._cleanup_expired_transactions()
         return {"ok": True, "message": "清理完成"}
 
+    @app.get("/health")
+    def health_check():
+        return {"status": "ok"}
+
     # SPA catch-all：所有未匹配的路径返回 index.html（支持前端路由）
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str, request: Request):
