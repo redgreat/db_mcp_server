@@ -49,7 +49,7 @@ endif
 release:
 ifeq ($(OS),Windows_NT)
 	@pwsh -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Host 'Release tag push...'"
-	@pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1
+	@pwsh -NoProfile -ExecutionPolicy Bypass -File script/dockerbuild.ps1
 else
 	@echo "Release tag push..."
 	@bash scripts/release.sh
