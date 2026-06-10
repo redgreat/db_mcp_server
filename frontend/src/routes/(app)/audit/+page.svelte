@@ -10,6 +10,7 @@
 	import Pagination from '$lib/components/Pagination.svelte';
 	import CellTip from '$lib/components/CellTip.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { authStore } from '$lib/stores/auth.svelte';
 
 	type LogTab = 'audit' | 'system';
 
@@ -117,12 +118,14 @@
 		>
 			数据库操作日志
 		</button>
-		<button
-			class="tab {activeTab === 'system' ? 'tab-active' : ''}"
-			onclick={() => switchTab('system')}
-		>
-			系统操作日志
-		</button>
+		{#if authStore.isAdmin}
+			<button
+				class="tab {activeTab === 'system' ? 'tab-active' : ''}"
+				onclick={() => switchTab('system')}
+			>
+				系统操作日志
+			</button>
+		{/if}
 	</div>
 
 	<!-- 数据库操作日志 -->
