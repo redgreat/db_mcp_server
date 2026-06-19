@@ -240,7 +240,7 @@ MCP_TOOLS = [
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "pdf"],
-                    "description": "输出格式。pdf：中文说明 + Mermaid 渲染为 ER 关系图（PNG 分片嵌入），需镜像含中文字体与 mermaid-cli"
+                    "description": "输出格式。pdf：中文实体摘要 + Mermaid 源码预览；如运行环境额外安装 mmdc，则会嵌入 PNG 分片图"
                 },
                 "save_path": {
                     "type": "string",

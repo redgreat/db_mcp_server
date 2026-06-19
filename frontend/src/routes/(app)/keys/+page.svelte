@@ -66,7 +66,6 @@
 
 	// 创建密钥
 	let showAddKeyModal = $state(false);
-	let newAk = $state('');
 	let newDesc = $state('');
 	let newSqlRiskCheckEnabled = $state(true);
 	let addKeyLoading = $state(false);
@@ -132,13 +131,11 @@
 		addKeyLoading = true;
 		try {
 			await api.post('/admin/keys', {
-				ak: newAk,
 				description: newDesc,
 				enabled: true,
 				sql_risk_check_enabled: newSqlRiskCheckEnabled
 			});
 			showAddKeyModal = false;
-			newAk = '';
 			newDesc = '';
 			newSqlRiskCheckEnabled = true;
 			toast('密钥创建成功', 'success');
@@ -490,15 +487,10 @@
 			<h3 class="font-bold text-base mb-4">创建访问密钥</h3>
 			<form onsubmit={handleAddKey}>
 				<div class="form-control mb-3">
-					<label class="label pb-1 text-sm" for="new-ak">AK (Access Key)</label>
-					<input id="new-ak" type="text" class="input input-bordered input-sm font-mono"
-						placeholder="如：mcp_key_prod_01" bind:value={newAk} required />
-					<div class="label"><span class="label-text-alt text-base-content/40">唯一标识符，AI 调用时使用</span></div>
-				</div>
-				<div class="form-control mb-4">
 					<label class="label pb-1 text-sm" for="new-desc">描述</label>
 					<input id="new-desc" type="text" class="input input-bordered input-sm"
 						placeholder="如：给数据分析助手使用" bind:value={newDesc} />
+					<div class="label"><span class="label-text-alt text-base-content/40">AK 将自动生成 32 位随机密钥</span></div>
 				</div>
 				<div class="form-control mb-4">
 					<label class="label cursor-pointer justify-start gap-3">

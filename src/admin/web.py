@@ -1,15 +1,18 @@
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import create_engine, select, insert, update, delete
+from sqlalchemy import create_engine, select, insert, update, delete, text
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
 import os
+import secrets
 from ..config import Config
 from ..logging_utils import get_logger
 from .models import ensure_schema
 from .auth import AuthService
-from ..security.secret import encrypt_text
+from ..security.secret import encrypt_text, decrypt_text
 from ..security.ip_whitelist import IPWhitelistChecker
 from ..timezone_util import serialize_row
 
@@ -21,10 +24,20 @@ class LoginRequest(BaseModel):
 
 
 class CreateKeyRequest(BaseModel):
-    ak: str
+    ak: Optional[str] = None
     description: str = ""
     enabled: bool = True
     sql_risk_check_enabled: bool = True
+
+
+class TestConnectionRequest(BaseModel):
+    host: str
+    port: int
+    db_type: str
+    database: str
+    username: str
+    password: Optional[str] = None
+    connection_id: Optional[int] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -90,6 +103,58 @@ def build_admin_router(cfg: Config):
     # 初始化系统操作日志记录器
     from ..logging.system_logger import SystemLogger
     system_logger = SystemLogger(engine)
+
+    def _generate_access_key() -> str:
+        return secrets.token_hex(16)
+
+    def _build_database_url(db_type: str, host: str, port: int, database: str, username: str, password: str) -> URL:
+        db_type_lower = (db_type or "").lower()
+        if db_type_lower in ("mysql", "mariadb"):
+            drivername = "mysql+pymysql"
+        elif db_type_lower in ("postgresql", "postgres"):
+            drivername = "postgresql+psycopg2"
+        elif db_type_lower in ("mssql", "sqlserver"):
+            drivername = "mssql+pymssql"
+        else:
+            raise HTTPException(status_code=400, detail="不支持的数据库类型")
+
+        return URL.create(
+            drivername=drivername,
+            username=username,
+            password=password,
+            host=host,
+            port=port,
+            database=database,
+        )
+
+    def _database_connect_args(db_type: str) -> dict:
+        db_type_lower = (db_type or "").lower()
+        if db_type_lower in ("mysql", "mariadb"):
+            return {"connect_timeout": 5}
+        if db_type_lower in ("postgresql", "postgres"):
+            return {"connect_timeout": 5}
+        if db_type_lower in ("mssql", "sqlserver"):
+            return {"login_timeout": 5, "timeout": 5}
+        return {}
+
+    def _test_database_connection(
+        db_type: str,
+        host: str,
+        port: int,
+        database: str,
+        username: str,
+        password: str,
+    ) -> None:
+        test_engine = create_engine(
+            _build_database_url(db_type, host, port, database, username, password),
+            pool_pre_ping=True,
+            connect_args=_database_connect_args(db_type),
+        )
+        try:
+            with test_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        finally:
+            test_engine.dispose()
 
     # ==================== 认证相关API ====================
 
@@ -699,8 +764,19 @@ def build_admin_router(cfg: Config):
 
         keys = tbl["access_keys"]
         with Session(engine) as s:
+            ak = (req.ak or "").strip()
+            if not ak:
+                for _ in range(5):
+                    candidate = _generate_access_key()
+                    exists = s.execute(select(keys.c.id).where(keys.c.ak == candidate)).first()
+                    if not exists:
+                        ak = candidate
+                        break
+                if not ak:
+                    raise HTTPException(status_code=500, detail="生成访问密钥失败，请重试")
+
             s.execute(insert(keys).values(
-                ak=req.ak,
+                ak=ak,
                 description=req.description,
                 enabled=req.enabled,
                 sql_risk_check_enabled=req.sql_risk_check_enabled,
@@ -714,11 +790,11 @@ def build_admin_router(cfg: Config):
             resource_type="access_key",
             user_id=user_data["user_id"],
             username=user_data["username"],
-            details={"ak": req.ak, "description": req.description}
+            details={"ak": ak, "description": req.description}
         )
 
-        logger.info(f"创建访问密钥: {req.ak} by {user_data['username']}")
-        return {"ok": True}
+        logger.info(f"创建访问密钥: {ak} by {user_data['username']}")
+        return {"ok": True, "ak": ak}
 
     @router.patch("/admin/keys/{key_id}/sql_risk_check")
     async def update_key_sql_risk_check(
@@ -994,6 +1070,59 @@ def build_admin_router(cfg: Config):
 
         logger.info(f"创建连接: {name} by {user_data['username']}")
         return {"ok": True}
+
+    @router.post("/admin/connections/test")
+    def test_connection(req: TestConnectionRequest, authorization: str = Header(None)):
+        """测试数据库连接有效性（仅管理员）"""
+        auth_service.require_admin(authorization)
+
+        password = req.password or ""
+        if not password and req.connection_id is not None:
+            t = tbl["db_connections"]
+            with Session(engine) as s:
+                row = s.execute(select(t).where(t.c.id == req.connection_id)).mappings().first()
+                if not row:
+                    raise HTTPException(status_code=404, detail="连接不存在")
+                password = decrypt_text(row["password_enc"], cfg.security.master_key)
+
+        if not password:
+            raise HTTPException(status_code=400, detail="请先填写数据库密码后再测试连接")
+
+        try:
+            _test_database_connection(
+                db_type=req.db_type,
+                host=req.host,
+                port=req.port,
+                database=req.database,
+                username=req.username,
+                password=password,
+            )
+        except HTTPException:
+            raise
+        except SQLAlchemyError as exc:
+            logger.warning(
+                "测试数据库连接失败: type=%s host=%s port=%s database=%s user=%s error=%s",
+                req.db_type,
+                req.host,
+                req.port,
+                req.database,
+                req.username,
+                exc,
+            )
+            raise HTTPException(status_code=400, detail=f"连接失败: {exc}") from exc
+        except Exception as exc:
+            logger.warning(
+                "测试数据库连接异常: type=%s host=%s port=%s database=%s user=%s error=%s",
+                req.db_type,
+                req.host,
+                req.port,
+                req.database,
+                req.username,
+                exc,
+            )
+            raise HTTPException(status_code=400, detail=f"连接失败: {exc}") from exc
+
+        return {"ok": True, "message": "连接测试成功"}
 
     @router.put("/admin/connections/{conn_id}")
     def update_connection(

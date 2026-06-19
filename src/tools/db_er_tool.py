@@ -5,6 +5,8 @@ import re
 import time
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 def get_foreign_keys(eng: Engine, database: str, db_type: str = "mysql") -> List[Dict[str, str]]:
     """获取所有外键关系"""
@@ -414,56 +416,13 @@ def _render_er_images(
     tmp_dir: str,
     include_implicit: bool,
 ) -> list[str]:
-    """优先 SchemaCrawler → tbls → mmdc 渲染 ER 图，返回图片路径列表。"""
-    import os
-    import shutil
-    import subprocess
-    from .schemacrawler_render import schemacrawler_available, render_er_diagram_from_engine
-    from .tbls_render import tbls_available, render_er_svg_from_engine
+    """可选使用 mmdc 渲染 ER 图，返回图片路径列表。
+
+    默认不再依赖 SchemaCrawler/tbls。那两条路径体积大、部署复杂，且对本项目
+    的业务域分片和隐含关系推断帮助有限；Mermaid 源码本身就是稳定可消费的交付物。
+    """
     from .mermaid_render import mmdc_available, render_mermaid_parts_to_pngs
     from .er_entity_catalog import generate_mermaid_parts_by_domain
-
-    image_paths: list[str] = []
-
-    if schemacrawler_available():
-        sc_output = os.path.join(tmp_dir, "er_schemacrawler.png")
-        result = render_er_diagram_from_engine(
-            eng, database, db_type, sc_output,
-            output_format="png",
-            title=f"ER Diagram - {database}",
-            show_columns=True,
-        )
-        if result["success"]:
-            image_paths.append(result["file_path"])
-            logger.info("ER 图使用 SchemaCrawler 渲染成功")
-            return image_paths
-        logger.warning("SchemaCrawler 渲染失败，回退: %s", result.get("error"))
-
-    if tbls_available():
-        tbls_output = os.path.join(tmp_dir, "er_tbls.svg")
-        result = render_er_svg_from_engine(
-            eng, database, db_type, tbls_output,
-        )
-        if result["success"] and result.get("file_path"):
-            fp = result["file_path"]
-            if fp.endswith(".svg") and shutil.which("rsvg-convert"):
-                png_fp = fp.replace(".svg", ".png")
-                try:
-                    subprocess.run(
-                        ["rsvg-convert", "-f", "png", "-o", png_fp, fp],
-                        capture_output=True, timeout=60,
-                    )
-                    if os.path.isfile(png_fp):
-                        image_paths.append(png_fp)
-                        logger.info("ER 图使用 tbls+rsvg-convert 渲染成功")
-                        return image_paths
-                except Exception:
-                    pass
-            elif fp.endswith(".png"):
-                image_paths.append(fp)
-                logger.info("ER 图使用 tbls 渲染成功")
-                return image_paths
-        logger.warning("tbls 渲染失败，回退: %s", result.get("error"))
 
     if mmdc_available():
         diagram_parts = generate_mermaid_parts_by_domain(
@@ -476,7 +435,7 @@ def _render_er_images(
             logger.info("ER 图使用 mmdc 渲染成功")
         return image_paths
 
-    logger.warning("SchemaCrawler/tbls/mmdc 均不可用，PDF 将不含 ER 图")
+    logger.info("未安装 mmdc，PDF 将只包含 ER 摘要与 Mermaid 源码预览")
     return []
 
 
@@ -484,10 +443,8 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
                          include_columns: bool = True,
                          include_implicit: bool = True,
                          save_path: Optional[str] = None) -> Dict[str, Any]:
-    """生成 PDF 格式的 ER 图报告（中文 + SchemaCrawler/tbls/mmdc 渲染为图片）。"""
+    """生成 PDF 格式的 ER 图报告（中文摘要 + 可选 Mermaid 图片渲染）。"""
     import os
-    import shutil
-    import subprocess
     import tempfile
     from fpdf import FPDF
     from pathlib import Path
@@ -504,14 +461,20 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
 
     catalog = build_entity_catalog(eng, database, db_type)
     mermaid_data = generate_er_mermaid(eng, database, db_type, include_columns, include_implicit)
+    mermaid_preview = mermaid_data["mermaid"][:5000]
     text_desc = generate_er_text_description(eng, database, db_type, include_implicit, for_pdf=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_er_{database}_{timestamp}.pdf"
 
-    downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
-    downloads_dir.mkdir(parents=True, exist_ok=True)
-    save_path = str(downloads_dir / filename)
+    if save_path:
+        save_path = os.path.abspath(save_path)
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        filename = os.path.basename(save_path)
+    else:
+        downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        save_path = str(downloads_dir / filename)
 
     image_paths: list[str] = []
     with tempfile.TemporaryDirectory(prefix="er_img_") as tmp:
@@ -554,12 +517,13 @@ def export_er_report_pdf(eng: Engine, database: str, db_type: str = "mysql",
             pdf.add_page()
             safe_multi_cell(
                 pdf,
-                "未生成 ER 关系图图片。SchemaCrawler/tbls/mmdc 均不可用或渲染失败。"
-                "请检查镜像中是否安装了 Java+SchemaCrawler 或 Go+tbls 或 mmdc+Chromium，"
-                "或使用 format=markdown 导出。",
+                "未生成 ER 图片：当前运行环境未安装 mmdc，或 Mermaid 渲染失败。"
+                "下方保留 Mermaid 源码预览；完整源码请使用 format=markdown 导出。",
                 bold=True,
                 size=12,
             )
+            pdf.ln(3)
+            safe_multi_cell(pdf, mermaid_preview, size=7, h=4)
 
         pdf_bytes = pdf.output()
         if isinstance(pdf_bytes, str):

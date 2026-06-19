@@ -493,9 +493,14 @@ def export_db_doc_pdf(
     # 获取通用的下载目录
     import os
     from pathlib import Path
-    downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
-    downloads_dir.mkdir(parents=True, exist_ok=True)
-    save_path = str(downloads_dir / filename)
+    if save_path:
+        save_path = os.path.abspath(save_path)
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        filename = os.path.basename(save_path)
+    else:
+        downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        save_path = str(downloads_dir / filename)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -551,6 +556,10 @@ def export_db_doc_pdf(
 
     return {
         "success": True,
+        "format": "pdf",
+        "filename": filename,
+        "size_bytes": len(pdf_bytes),
+        "table_count": len(get_all_tables_with_comments(eng, database, db_type)),
         "message": f"数据库说明文档生成成功，共包含 {len(get_all_tables_with_comments(eng, database, db_type))} 张表。",
         "file_path": saved_to,
         "download_url": download_url,

@@ -11,6 +11,7 @@ import json
 import asyncio
 import logging
 import uuid
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -615,10 +616,10 @@ async def _execute_mcp_tool_inner(
                     pdf_result = export_db_doc_pdf(
                         engine, database, conn_row["db_type"], save_path
                     )
-                    import base64 as _b64
-
-                    file_data = _b64.b64decode(pdf_result["pdf_base64"])
-                    filename = pdf_result.get("filename") or f"db_doc_{database}.pdf"
+                    file_path = pdf_result["file_path"]
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
+                    filename = pdf_result.get("filename") or os.path.basename(file_path)
                     content_type = "application/pdf"
                     extra = {
                         "size_bytes": pdf_result.get("size_bytes", len(file_data)),
@@ -674,33 +675,20 @@ async def _execute_mcp_tool_inner(
                     duration_ms=duration_ms
                 )
 
-                resp_content = []
-                # 依然返回资源以便界面预览
-                resp_content.append({
-                    "type": "resource",
-                    "resource": {
-                        "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
-                        "mimeType": "application/pdf",
-                        "blob": pdf_result["pdf_base64"]
-                    }
-                })
-
-                msg_body = {
-                    "filename": pdf_result["filename"],
-                    "size_bytes": pdf_result["size_bytes"],
-                    "table_count": pdf_result["table_count"],
-                    "message": f"PDF 文档已生成：{pdf_result['filename']}（{pdf_result['size_bytes']} 字节）"
-                }
-                if pdf_result.get("saved_to"):
-                    msg_body["saved_to"] = pdf_result["saved_to"]
-                    msg_body["message"] += f"，已自动保存到本地：{pdf_result['saved_to']}"
-
-                resp_content.append({
-                    "type": "text",
-                    "text": json.dumps(msg_body, ensure_ascii=False)
-                })
-
-                return {"content": resp_content}
+                public = (getattr(cfg.server, "public_base_url", None) or "").strip().rstrip("/")
+                rel = pdf_result.get("download_url") or ""
+                download_url = f"{public}{rel}" if public else rel
+                return build_download_mcp_content(
+                    title="数据字典 PDF",
+                    download_url=download_url,
+                    filename=pdf_result.get("filename") or "db_doc.pdf",
+                    fmt="pdf",
+                    extra={
+                        "size_bytes": pdf_result.get("size_bytes"),
+                        "table_count": pdf_result.get("table_count"),
+                        "file_path": pdf_result.get("file_path"),
+                    },
+                )
             else:
                 md = generate_db_doc_markdown(engine, database, conn_row["db_type"])
                 result = {"format": "markdown", "content": md}
@@ -867,10 +855,10 @@ async def _execute_mcp_tool_inner(
                     pdf_result = export_dataflow_report_pdf(
                         engine, database, conn_row["db_type"], save_path
                     )
-                    import base64 as _b64
-
-                    file_data = _b64.b64decode(pdf_result["pdf_base64"])
-                    filename = pdf_result.get("filename") or f"db_dataflow_{database}.pdf"
+                    file_path = pdf_result["file_path"]
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
+                    filename = pdf_result.get("filename") or os.path.basename(file_path)
                     content_type = "application/pdf"
                     extra = {"size_bytes": pdf_result.get("size_bytes", len(file_data))}
                 else:
@@ -926,30 +914,20 @@ async def _execute_mcp_tool_inner(
                     client_ip=client_ip, connection_id=connection_id, duration_ms=duration_ms
                 )
 
-                resp_content = []
-                resp_content.append({
-                    "type": "resource",
-                    "resource": {
-                        "uri": f"data:application/pdf;base64,{pdf_result['pdf_base64']}",
-                        "mimeType": "application/pdf",
-                        "blob": pdf_result["pdf_base64"]
-                    }
-                })
-
-                msg_body = {
-                    "filename": pdf_result["filename"],
-                    "size_bytes": pdf_result["size_bytes"],
-                    "message": f"数据流报告已生成：{pdf_result['filename']}"
-                }
-                if pdf_result.get("saved_to"):
-                    msg_body["saved_to"] = pdf_result["saved_to"]
-                    msg_body["message"] += f"，已自动保存到本地：{pdf_result['saved_to']}"
-
-                resp_content.append({
-                    "type": "text",
-                    "text": json.dumps(msg_body, ensure_ascii=False)
-                })
-                return {"content": resp_content}
+                public = (getattr(cfg.server, "public_base_url", None) or "").strip().rstrip("/")
+                rel = pdf_result.get("download_url") or ""
+                download_url = f"{public}{rel}" if public else rel
+                return build_download_mcp_content(
+                    title="数据流图 PDF",
+                    download_url=download_url,
+                    filename=pdf_result.get("filename") or "dataflow.pdf",
+                    fmt="pdf",
+                    extra={
+                        "size_bytes": pdf_result.get("size_bytes"),
+                        "file_path": pdf_result.get("file_path"),
+                        "mermaid_preview": pdf_result.get("mermaid_preview"),
+                    },
+                )
 
             result = {}
             if output_type in ("mermaid", "both"):

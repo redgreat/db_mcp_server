@@ -23,44 +23,9 @@ RUN npm run build
 # 阶段二：Python 运行时
 FROM python:3.13-slim
 
-# supervisor + 中文字体 + Chromium（Mermaid 渲染 ER 图）+ Graphviz（SchemaCrawler/tbls SVG/PNG）
+# supervisor + 中文字体。ER/数据流默认输出 Mermaid/Markdown/PDF 摘要，不再内置重型图形组件。
 RUN apt-get update && \
-    apt-get install -y supervisor tini curl fonts-noto-cjk fonts-wqy-microhei fontconfig chromium graphviz && \
-    rm -rf /var/lib/apt/lists/*
-
-# JRE 17 + SchemaCrawler（高质量 ER 图生成，替代/补充 mmdc）
-RUN apt-get update && \
-    apt-get install -y default-jre-headless && \
-    rm -rf /var/lib/apt/lists/*
-ARG SCHEMACRAWLER_VERSION=16.2.4
-RUN mkdir -p /app/opt/schemacrawler/lib && \
-    curl -fsSL --retry 3 -o /tmp/sc-distribution.jar \
-      "https://github.com/schemacrawler/SchemaCrawler/releases/download/v${SCHEMACRAWLER_VERSION}/schemacrawler-${SCHEMACRAWLER_VERSION}-distribution.jar" && \
-    cp /tmp/sc-distribution.jar /app/opt/schemacrawler/ && \
-    cd /app/opt/schemacrawler && \
-    java -jar schemacrawler-${SCHEMACRAWLER_VERSION}-distribution.jar --install 2>/dev/null || true && \
-    rm -f /tmp/sc-distribution.jar
-
-# JDBC 驱动（SchemaCrawler 连接 MySQL/PostgreSQL/SQLServer）
-RUN mkdir -p /app/opt/schemacrawler/lib && \
-    curl -fsSL --retry 3 -o /app/opt/schemacrawler/lib/mysql-connector-j.jar \
-      "https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.4.0/mysql-connector-j-8.4.0.jar" && \
-    curl -fsSL --retry 3 -o /app/opt/schemacrawler/lib/postgresql.jar \
-      "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar" && \
-    curl -fsSL --retry 3 -o /app/opt/schemacrawler/lib/mssql-jdbc.jar \
-      "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.6.1.jre11/mssql-jdbc-12.6.1.jre11.jar" || true
-
-# Go + tbls（ER 图 + 数据流图 + 文档生成）
-RUN apt-get update && \
-    apt-get install -y golang-go && \
-    rm -rf /var/lib/apt/lists/*
-RUN go install github.com/k1LoW/tbls@latest && \
-    cp "$(go env GOPATH)/bin/tbls" /usr/local/bin/tbls 2>/dev/null || true
-
-# Mermaid CLI：将 erDiagram 渲染为 PNG 嵌入 PDF（回退方案）
-RUN apt-get update && \
-    apt-get install -y nodejs npm && \
-    npm install -g @mermaid-js/mermaid-cli@11 && \
+    apt-get install -y supervisor tini curl fonts-noto-cjk fonts-wqy-microhei fontconfig && \
     rm -rf /var/lib/apt/lists/*
 
 # 创建非root用户
@@ -110,10 +75,9 @@ ENV TZ=Asia/Shanghai
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV LOG_DIR=/var/log/db_mcp_server
-ENV SCHEMACRAWLER_HOME=/app/opt/schemacrawler
 
 EXPOSE 3000
 
-# tini 作 PID 1 回收 mmdc/Chromium 子进程；supervisord 只管理 web/init_db
+# tini 作 PID 1；supervisord 只管理 web/init_db
 ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
 CMD ["supervisord", "-c", "/app/docker/supervisord.conf"]

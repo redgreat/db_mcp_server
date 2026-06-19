@@ -290,34 +290,13 @@ def _render_dataflow_image(
     mermaid_source: str,
     tmp_dir: str,
 ) -> Optional[str]:
-    """优先 tbls → mmdc 渲染数据流图，返回图片路径。"""
-    import os
-    import shutil
-    import subprocess
-    from .tbls_render import tbls_available, render_er_svg_from_engine
-    from .mermaid_render import mmdc_available, render_mermaid_to_png
+    """可选使用 mmdc 渲染数据流图，返回图片路径。
 
-    if tbls_available():
-        tbls_output = os.path.join(tmp_dir, "dataflow_tbls.svg")
-        result = render_er_svg_from_engine(
-            eng, database, db_type, tbls_output,
-        )
-        if result["success"] and result.get("file_path"):
-            fp = result["file_path"]
-            if fp.endswith(".svg") and shutil.which("rsvg-convert"):
-                png_fp = fp.replace(".svg", ".png")
-                try:
-                    subprocess.run(
-                        ["rsvg-convert", "-f", "png", "-o", png_fp, fp],
-                        capture_output=True, timeout=60,
-                    )
-                    if os.path.isfile(png_fp):
-                        return png_fp
-                except Exception:
-                    pass
-            elif fp.endswith(".png"):
-                return fp
-        logging.getLogger(__name__).warning("tbls 数据流图渲染失败，回退 mmdc")
+    tbls 只能从 schema 生成关系图，不能表达视图/存储过程/触发器的数据流；
+    之前复用 tbls 的 ER 图输出会导致“数据流图”内容不对。
+    """
+    import os
+    from .mermaid_render import mmdc_available, render_mermaid_to_png
 
     if mmdc_available():
         candidate = os.path.join(tmp_dir, "dataflow.png")
@@ -330,7 +309,7 @@ def _render_dataflow_image(
 def export_dataflow_report_pdf(
     eng: Engine, database: str, db_type: str = "mysql", save_path: Optional[str] = None
 ) -> Dict[str, Any]:
-    """生成 PDF 格式的数据流报告（中文 + tbls/mmdc 渲染数据流图）。"""
+    """生成 PDF 格式的数据流报告（中文摘要 + 可选 Mermaid 图片渲染）。"""
     import os
     import tempfile
     from fpdf import FPDF
@@ -346,9 +325,14 @@ def export_dataflow_report_pdf(
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"db_dataflow_{database}_{timestamp}.pdf"
 
-    downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
-    downloads_dir.mkdir(parents=True, exist_ok=True)
-    save_path = str(downloads_dir / filename)
+    if save_path:
+        save_path = os.path.abspath(save_path)
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        filename = os.path.basename(save_path)
+    else:
+        downloads_dir = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        save_path = str(downloads_dir / filename)
 
     png_path: Optional[str] = None
     with tempfile.TemporaryDirectory(prefix="flow_img_") as tmp:
@@ -378,8 +362,16 @@ def export_dataflow_report_pdf(
             set_cjk_font(pdf, "B", 12)
             pdf.cell(
                 0, 10,
-                "未生成数据流图。tbls/mmdc 均不可用或渲染失败。",
+                "未生成数据流图片：当前运行环境未安装 mmdc，或 Mermaid 渲染失败。",
                 new_x="LMARGIN", new_y="NEXT",
+            )
+            set_cjk_font(pdf, "", 7)
+            pdf.multi_cell(
+                0,
+                4,
+                "Mermaid 源码预览：\n" + mermaid_data["mermaid"][:5000],
+                new_x="LMARGIN",
+                new_y="NEXT",
             )
 
         pdf_bytes = pdf.output()
@@ -398,6 +390,8 @@ def export_dataflow_report_pdf(
     return {
         "success": True,
         "format": "pdf",
+        "filename": filename,
+        "size_bytes": len(pdf_bytes),
         "file_path": saved_to,
         "download_url": download_url,
         "mermaid_preview": mermaid_preview

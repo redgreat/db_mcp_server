@@ -37,6 +37,10 @@
 	let editingConnId = $state<number | null>(null);
 	let saveLoading = $state(false);
 	let saveError = $state('');
+	let testLoading = $state(false);
+	let testMessage = $state('');
+	let testError = $state('');
+	let rowTestingId = $state<number | null>(null);
 
 	interface DeletePreview {
 		connection: {
@@ -89,6 +93,7 @@
 	function openAddModal() {
 		editingConnId = null;
 		saveError = '';
+		resetTestResult();
 		resetForm();
 		showConnModal = true;
 	}
@@ -100,6 +105,7 @@
 		}
 		editingConnId = conn.id;
 		saveError = '';
+		resetTestResult();
 		form = {
 			name: conn.name,
 			host: conn.host,
@@ -117,7 +123,57 @@
 		showConnModal = false;
 		editingConnId = null;
 		saveError = '';
+		resetTestResult();
 		resetForm();
+	}
+
+	async function handleTestConnection() {
+		if (!authStore.isAdmin) {
+			toast('仅管理员可测试连接', 'error');
+			return;
+		}
+		testLoading = true;
+		testMessage = '';
+		testError = '';
+		try {
+			const res = await api.post<{ ok: boolean; message: string }>('/admin/connections/test', {
+				host: form.host,
+				port: Number(form.port),
+				db_type: form.db_type,
+				database: form.database,
+				username: form.username,
+				password: form.password || undefined,
+				connection_id: editingConnId ?? undefined
+			});
+			testMessage = res.message || '连接测试成功';
+		} catch (err) {
+			testError = err instanceof ApiError ? err.message : '连接测试失败';
+		} finally {
+			testLoading = false;
+		}
+	}
+
+	async function handleTestExistingConnection(conn: Connection) {
+		if (!authStore.isAdmin) {
+			toast('仅管理员可测试连接', 'error');
+			return;
+		}
+		rowTestingId = conn.id;
+		try {
+			await api.post('/admin/connections/test', {
+				host: conn.host,
+				port: conn.port,
+				db_type: conn.db_type,
+				database: conn.database,
+				username: conn.username,
+				connection_id: conn.id
+			});
+			toast('连接测试成功', 'success');
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : '连接测试失败', 'error');
+		} finally {
+			rowTestingId = null;
+		}
 	}
 
 	async function handleSaveConn(e: SubmitEvent) {
@@ -203,6 +259,13 @@
 		form = { name: '', host: '', port: '3306', db_type: 'mysql', database: '', username: '', password: '', description: '' };
 	}
 
+	function resetTestResult() {
+		testLoading = false;
+		testMessage = '';
+		testError = '';
+		rowTestingId = null;
+	}
+
 	load();
 </script>
 
@@ -270,6 +333,14 @@
 							{#if authStore.isAdmin}
 								<td class="col-actions">
 									<RowActions>
+										<button
+											type="button"
+											class="btn-act btn-act-success"
+											disabled={rowTestingId === conn.id}
+											onclick={() => handleTestExistingConnection(conn)}
+										>
+											{rowTestingId === conn.id ? '测试中' : '测试'}
+										</button>
 										<button type="button" class="btn-act btn-act-primary" onclick={() => openEditModal(conn)}>编辑</button>
 										<button type="button" class="btn-act btn-act-error" onclick={() => openDeleteConfirm(conn)}>删除</button>
 									</RowActions>
@@ -350,17 +421,29 @@
 							placeholder="连接用途说明" bind:value={form.description} />
 					</div>
 				</div>
+				{#if testMessage}
+					<div class="alert alert-success py-2 px-3 mt-3 text-sm"><span>{testMessage}</span></div>
+				{/if}
+				{#if testError}
+					<div class="alert alert-error py-2 px-3 mt-3 text-sm"><span>{testError}</span></div>
+				{/if}
 				{#if saveError}
 					<div class="alert alert-error py-2 px-3 mt-3 text-sm"><span>{saveError}</span></div>
 				{/if}
-				<div class="modal-action mt-4">
-					<button type="button" class="btn btn-ghost btn-sm" onclick={closeConnModal}>
-						取消
+				<div class="modal-action mt-4 justify-between">
+					<button type="button" class="btn btn-outline btn-sm" onclick={handleTestConnection} disabled={testLoading || saveLoading}>
+						{#if testLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
+						测试连接
 					</button>
-					<button type="submit" class="btn btn-primary btn-sm" disabled={saveLoading}>
-						{#if saveLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
-						{editingConnId !== null ? '保存' : '创建连接'}
-					</button>
+					<div class="flex gap-2">
+						<button type="button" class="btn btn-ghost btn-sm" onclick={closeConnModal}>
+							取消
+						</button>
+						<button type="submit" class="btn btn-primary btn-sm" disabled={saveLoading || testLoading}>
+							{#if saveLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
+							{editingConnId !== null ? '保存' : '创建连接'}
+						</button>
+					</div>
 				</div>
 			</form>
 		</div>

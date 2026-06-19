@@ -514,7 +514,7 @@ uvicorn src.server:app --reload --host 0.0.0.0 --port 3000
 - 权限不足：检查 select_only/allow_ddl 授权是否满足
 - 连接失败：核对 host、port、db_type、用户与密码；检查网络与数据库白名单
 - MCP 工具无 AI 分析：在管理后台检查「大模型配置」是否已激活且 API Key 有效
-- PDF/ER 乱码或空白：镜像需含中文字体与 `mermaid-cli`（见 `docs/MCP客户端调用说明.md`）
+- PDF/ER 乱码或空白：镜像需含中文字体；ER/数据流默认输出 Mermaid 与摘要，若需 PDF 内嵌图片可额外安装 `mermaid-cli`（见 `docs/MCP客户端调用说明.md`）
 - 报表/文档无下载链接：检查 `config.yml` 的 `object_storage` 是否启用
 
 ## 许可证

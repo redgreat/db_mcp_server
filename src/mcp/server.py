@@ -349,15 +349,16 @@ def _execute_tool(
                         eng, database, db_type, include_implicit)
             else:
                 fmt = args.get("format", "markdown")
-                import base64
+                import os
                 import time
                 from ..tools.object_storage import ObjectStorageClient
                 try:
                     if fmt == "pdf":
                         from ..tools.db_er_tool import export_er_report_pdf
                         pdf = export_er_report_pdf(eng, database, db_type, include_columns, include_implicit)
-                        data = base64.b64decode(pdf["pdf_base64"])
-                        filename = pdf["filename"]
+                        with open(pdf["file_path"], "rb") as f:
+                            data = f.read()
+                        filename = pdf.get("filename") or os.path.basename(pdf["file_path"])
                         content_type = "application/pdf"
                     else:
                         from ..tools.db_er_tool import generate_er_mermaid, generate_er_text_description
@@ -405,14 +406,16 @@ def _execute_tool(
             eng, db_name, db_type = _get_engine(cfg, qp, connection_id)
             database = args.get("database") or db_name
             fmt = args.get("format", "markdown")
-            import base64, time
+            import os
+            import time
             from ..tools.object_storage import ObjectStorageClient
             try:
                 if fmt == "pdf":
                     from ..tools.db_dataflow_tool import export_dataflow_report_pdf
                     pdf = export_dataflow_report_pdf(eng, database, db_type)
-                    data = base64.b64decode(pdf["pdf_base64"])
-                    filename = pdf["filename"]
+                    with open(pdf["file_path"], "rb") as f:
+                        data = f.read()
+                    filename = pdf.get("filename") or os.path.basename(pdf["file_path"])
                     content_type = "application/pdf"
                 else:
                     from ..tools.db_dataflow_tool import generate_dataflow_mermaid, generate_dataflow_description

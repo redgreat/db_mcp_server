@@ -60,8 +60,9 @@ python script/mcp_call.py --http --base https://mcp.wongcw.cn \
 ## PDF ER 图说明
 
 - 中文乱码/叠字：镜像须内置 **NotoSansCJKsc-Regular.otf**（`Dockerfile` 构建时下载）；勿优先用 `.ttc`（fpdf2 易错 face 索引）。部署后日志应出现 `PDF 中文字体: ...NotoSansCJKsc-Regular.otf`
-- ER **图形**：需镜像安装 **mermaid-cli (`mmdc`)** + Chromium，PDF 内为 PNG 分片图，不是 Mermaid 源码堆砌
-- 表特别多（如 400+）会按约 40 张表一张图分片
+- ER/数据流默认使用服务端元数据生成 **Mermaid + 文字摘要**，不再依赖 SchemaCrawler/tbls 等重型组件。
+- 若运行环境额外安装 **mermaid-cli (`mmdc`)** + Chromium，PDF 会把 Mermaid 分片渲染成 PNG 嵌入；未安装时 PDF 保留摘要与 Mermaid 源码预览。
+- 表特别多（如 400+）会按业务域分片，建议优先用 `format=markdown` 获取完整 Mermaid 和数据字典。
 
 ## 与 `mcp_sse_call.py` 的关系
 
