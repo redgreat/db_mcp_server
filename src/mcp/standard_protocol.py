@@ -12,6 +12,7 @@ import asyncio
 import logging
 import uuid
 import os
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,41 @@ class MCPNotification(MCPMessage):
     """MCP 通知"""
     method: str
     params: Optional[Dict[str, Any]] = None
+
+
+def _debug_report(hypothesis_id: str, location: str, msg: str, data: Optional[Dict[str, Any]] = None):
+    """向调试服务器上报最小化运行时证据。"""
+    # #region debug-point A:debug-report
+    try:
+        env_path = os.path.join(".dbg", "mcp-list-connections.env")
+        debug_url = "http://127.0.0.1:7777/event"
+        session_id = "mcp-list-connections"
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as env_file:
+                for line in env_file:
+                    if line.startswith("DEBUG_SERVER_URL="):
+                        debug_url = line.split("=", 1)[1].strip() or debug_url
+                    elif line.startswith("DEBUG_SESSION_ID="):
+                        session_id = line.split("=", 1)[1].strip() or session_id
+        payload = json.dumps({
+            "sessionId": session_id,
+            "runId": "pre-fix",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "msg": f"[DEBUG] {msg}",
+            "data": data or {},
+        }).encode("utf-8")
+        urllib.request.urlopen(
+            urllib.request.Request(
+                debug_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            ),
+            timeout=0.3,
+        ).read()
+    except Exception:
+        pass
+    # #endregion
 
 
 def build_standard_mcp_router(
@@ -101,6 +137,19 @@ def build_standard_mcp_router(
             # 降级方案
             message_url = f"/mcp/message?session_id={session_id}&X-Access-Key={x_access_key}"
 
+        # #region debug-point A:sse-session-created
+        _debug_report(
+            "A",
+            "src/mcp/standard_protocol.py:mcp_sse_endpoint",
+            "SSE session created",
+            {
+                "session_id": session_id,
+                "message_url": message_url,
+                "access_key_tail": x_access_key[-6:] if x_access_key else "",
+            },
+        )
+        # #endregion
+
         async def event_generator():
             """SSE 事件生成器"""
             logger.info(f"SSE Connection established: session_id={session_id}")
@@ -115,6 +164,19 @@ def build_standard_mcp_router(
                         # 缩短超时时间到 15s 以便更频繁地发送心跳
                         msg = await asyncio.wait_for(queue.get(), timeout=15.0)
                         data = json.dumps(msg)
+                        # #region debug-point A:sse-queue-consume
+                        _debug_report(
+                            "A",
+                            "src/mcp/standard_protocol.py:event_generator",
+                            "SSE queue consumed message",
+                            {
+                                "session_id": session_id,
+                                "response_id": msg.get("id") if isinstance(msg, dict) else None,
+                                "has_result": isinstance(msg, dict) and "result" in msg,
+                                "has_error": isinstance(msg, dict) and "error" in msg,
+                            },
+                        )
+                        # #endregion
                         logger.debug(f"SSE sending message to {session_id}: {data[:100]}...")
                         yield f"event: message\ndata: {data}\n\n"
                     except asyncio.TimeoutError:
@@ -226,6 +288,20 @@ async def _handle_transport_message(
     if session_id:
         queue = SESSIONS.get(session_id)
 
+    # #region debug-point A:transport-queue-lookup
+    _debug_report(
+        "A",
+        "src/mcp/standard_protocol.py:_handle_transport_message",
+        "Transport request received",
+        {
+            "session_id": session_id,
+            "queue_found": queue is not None,
+            "method": mcp_request.method,
+            "request_id": mcp_request.id,
+        },
+    )
+    # #endregion
+
     try:
         result = await handle_mcp_request(
             mcp_request,
@@ -242,6 +318,19 @@ async def _handle_transport_message(
             return Response(status_code=202)
 
         if queue is None:
+            # #region debug-point C:transport-direct-response
+            _debug_report(
+                "C",
+                "src/mcp/standard_protocol.py:_handle_transport_message",
+                "Returning direct JSON response because session queue is missing",
+                {
+                    "session_id": session_id,
+                    "method": mcp_request.method,
+                    "request_id": mcp_request.id,
+                    "result_type": type(result).__name__,
+                },
+            )
+            # #endregion
             resp = MCPResponse(
                 id=mcp_request.id,
                 result=result
@@ -253,6 +342,19 @@ async def _handle_transport_message(
             result=result
         )
         data = resp.model_dump(exclude_none=True)
+        # #region debug-point A:transport-queue-response
+        _debug_report(
+            "A",
+            "src/mcp/standard_protocol.py:_handle_transport_message",
+            "Queueing MCP response to SSE session",
+            {
+                "session_id": session_id,
+                "request_id": mcp_request.id,
+                "method": mcp_request.method,
+                "result_type": type(result).__name__,
+            },
+        )
+        # #endregion
         logger.info(f"Queueing response for {session_id}, id={mcp_request.id}")
         await queue.put(data)
         return Response(status_code=202)
@@ -330,13 +432,37 @@ async def handle_mcp_request(
 
     elif method == "tools/list":
         from .tools import get_tool_definitions
+        tools = get_tool_definitions()
+        # #region debug-point B:tools-list-shape
+        _debug_report(
+            "B",
+            "src/mcp/standard_protocol.py:handle_mcp_request",
+            "tools/list executed",
+            {
+                "tool_count": len(tools),
+                "first_tool": tools[0]["name"] if tools else None,
+            },
+        )
+        # #endregion
         return {
-            "tools": get_tool_definitions()
+            "tools": tools
         }
 
     elif method == "tools/call":
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
+
+        # #region debug-point D:tools-call-entry
+        _debug_report(
+            "D",
+            "src/mcp/standard_protocol.py:handle_mcp_request",
+            "tools/call entry",
+            {
+                "tool_name": tool_name,
+                "argument_keys": sorted(list(arguments.keys())),
+            },
+        )
+        # #endregion
 
         return await execute_mcp_tool(
             tool_name,
@@ -425,6 +551,17 @@ async def _execute_mcp_tool_inner(
         keys = tbl["access_keys"]
         perms = tbl["permissions"]
         conns = tbl["db_connections"]
+        # #region debug-point D:list-connections-entry
+        _debug_report(
+            "D",
+            "src/mcp/standard_protocol.py:_execute_mcp_tool_inner",
+            "list_connections branch entered",
+            {
+                "search": search,
+                "access_key_tail": access_key[-6:] if access_key else "",
+            },
+        )
+        # #endregion
         with Session(admin_engine) as session:
             key_row = session.execute(
                 select(keys).where(keys.c.ak == access_key)
@@ -456,6 +593,19 @@ async def _execute_mcp_tool_inner(
 
             conn_rows = session.execute(stmt).mappings().all()
             result = {"connections": [dict(r) for r in conn_rows]}
+
+            # #region debug-point D:list-connections-result
+            _debug_report(
+                "D",
+                "src/mcp/standard_protocol.py:_execute_mcp_tool_inner",
+                "list_connections query completed",
+                {
+                    "row_count": len(conn_rows),
+                    "sample_connection": dict(conn_rows[0]) if conn_rows else None,
+                    "return_shape": "content-text-json",
+                },
+            )
+            # #endregion
 
             # 记录审计日志
             duration_ms = int((time.time() - start_time) * 1000)
