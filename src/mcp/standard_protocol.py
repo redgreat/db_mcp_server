@@ -357,7 +357,7 @@ async def _handle_transport_message(
         # #endregion
         logger.info(f"Queueing response for {session_id}, id={mcp_request.id}")
         await queue.put(data)
-        return Response(status_code=202)
+        return JSONResponse(data)
 
     except Exception as e:
         logger.error(f"MCP Error: {str(e)}")
@@ -373,8 +373,9 @@ async def _handle_transport_message(
         )
         if queue is None:
             return JSONResponse(resp.model_dump(exclude_none=True))
-        await queue.put(resp.model_dump(exclude_none=True))
-        return Response(status_code=202)
+        data = resp.model_dump(exclude_none=True)
+        await queue.put(data)
+        return JSONResponse(data)
 
 
 async def handle_mcp_request(
