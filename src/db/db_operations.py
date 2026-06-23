@@ -1,10 +1,52 @@
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, URL
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import threading
 import time
+from urllib.parse import urlsplit
+
+
+def normalize_host_port(host: str, port: int) -> tuple[str, int]:
+    """规范化 host/port，避免因 host 输入异常导致连接失败。"""
+    h = (host or "").strip()
+    p = int(port)
+    if not h:
+        return h, p
+
+    h = h.split()[0]
+
+    if "://" in h:
+        u = urlsplit(h)
+        if u.hostname:
+            h = u.hostname
+        if u.port:
+            p = int(u.port)
+    else:
+        for sep in ("/", "?", "#"):
+            if sep in h:
+                h = h.split(sep, 1)[0]
+        if "@" in h:
+            h = h.split("@", 1)[1]
+
+        if h.startswith("[") and "]" in h:
+            end = h.find("]")
+            inside = h[1:end]
+            rest = h[end + 1:]
+            if rest.startswith(":") and rest[1:].isdigit():
+                p = int(rest[1:])
+            h = inside
+        else:
+            if h.count(":") == 1 and h.rsplit(":", 1)[1].isdigit():
+                h, port_part = h.rsplit(":", 1)
+                p = int(port_part)
+
+    h = h.strip(".")
+    while ".." in h:
+        h = h.replace("..", ".")
+
+    return h, p
 
 
 class TransactionInfo:
@@ -54,17 +96,27 @@ class QueryProxy:
         Returns:
             SQLAlchemy引擎实例
         """
+        host, port = normalize_host_port(host, port)
         key = self._engine_key(host, port, user, db)
         eng = self.engines.get(key)
         if eng is None:
-            if db_type.lower() == "postgresql":
-                uri = f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{db}"
-            elif db_type.lower() in ("sqlserver", "mssql"):
-                # 注意：有些情况下需要额外参数 ?charset=utf8
-                uri = f"mssql+pymssql://{user}:{pwd}@{host}:{port}/{db}"
-            else:  # 默认使用MySQL
-                uri = f"mysql+pymysql://{user}:{pwd}@{host}:{port}/{db}"
-            eng = create_engine(uri, pool_pre_ping=True)
+            db_type_lower = (db_type or "").lower()
+            if db_type_lower in ("postgresql", "postgres"):
+                drivername = "postgresql+psycopg2"
+            elif db_type_lower in ("sqlserver", "mssql"):
+                drivername = "mssql+pymssql"
+            else:
+                drivername = "mysql+pymysql"
+
+            url = URL.create(
+                drivername=drivername,
+                username=user,
+                password=pwd,
+                host=host,
+                port=int(port),
+                database=db,
+            )
+            eng = create_engine(url, pool_pre_ping=True)
             self.engines[key] = eng
         return eng
 

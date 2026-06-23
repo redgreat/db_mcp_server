@@ -15,6 +15,7 @@ from .auth import AuthService
 from ..security.secret import encrypt_text, decrypt_text
 from ..security.ip_whitelist import IPWhitelistChecker
 from ..timezone_util import serialize_row
+from ..db.db_operations import normalize_host_port
 
 
 # 请求模型
@@ -108,6 +109,7 @@ def build_admin_router(cfg: Config):
         return secrets.token_hex(16)
 
     def _build_database_url(db_type: str, host: str, port: int, database: str, username: str, password: str) -> URL:
+        host, port = normalize_host_port(host, port)
         db_type_lower = (db_type or "").lower()
         if db_type_lower in ("mysql", "mariadb"):
             drivername = "mysql+pymysql"
@@ -145,6 +147,7 @@ def build_admin_router(cfg: Config):
         username: str,
         password: str,
     ) -> None:
+        host, port = normalize_host_port(host, port)
         test_engine = create_engine(
             _build_database_url(db_type, host, port, database, username, password),
             pool_pre_ping=True,
@@ -1042,6 +1045,8 @@ def build_admin_router(cfg: Config):
         """创建数据库连接（仅管理员）"""
         user_data = auth_service.require_admin(authorization)
 
+        host, port = normalize_host_port(host, port)
+
         # 加密密码 (使用 master_key)
         pwd_enc = encrypt_text(password, cfg.security.master_key)
 
@@ -1089,10 +1094,11 @@ def build_admin_router(cfg: Config):
             raise HTTPException(status_code=400, detail="请先填写数据库密码后再测试连接")
 
         try:
+            host, port = normalize_host_port(req.host, req.port)
             _test_database_connection(
                 db_type=req.db_type,
-                host=req.host,
-                port=req.port,
+                host=host,
+                port=port,
                 database=req.database,
                 username=req.username,
                 password=password,
@@ -1139,6 +1145,8 @@ def build_admin_router(cfg: Config):
     ):
         """更新数据库连接（仅管理员）；password 不传或为空则保留原密码"""
         user_data = auth_service.require_admin(authorization)
+
+        host, port = normalize_host_port(host, port)
 
         t = tbl["db_connections"]
         with Session(engine) as s:
