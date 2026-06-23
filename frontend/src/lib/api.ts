@@ -3,6 +3,7 @@
  */
 import { goto } from '$app/navigation';
 import { authStore } from '$lib/stores/auth.svelte';
+import { toast } from '$lib/stores/toast.svelte';
 
 let redirectingToLogin = false;
 
@@ -10,6 +11,7 @@ function handleUnauthorized(): void {
 	if (redirectingToLogin) return;
 	redirectingToLogin = true;
 	authStore.logout();
+	toast('登录过期，请重新登录', 'error');
 	goto('/login').finally(() => {
 		redirectingToLogin = false;
 	});
@@ -62,8 +64,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 	if (!res.ok) {
 		const msg = await parseDetail(res);
-		if (res.status === 401) {
+		if (res.status === 401 || res.status === 403) {
 			handleUnauthorized();
+			throw new ApiError(msg, res.status);
 		}
 		throw new ApiError(msg, res.status);
 	}

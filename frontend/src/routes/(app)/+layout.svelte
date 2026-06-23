@@ -70,7 +70,7 @@
 				const data = await api.get<{ user: import('$lib/stores/auth.svelte').User }>('/admin/me');
 				authStore.setUser(data.user);
 			} catch (err) {
-				if (err instanceof ApiError && err.status === 401) {
+				if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
 					return;
 				}
 				authStore.logout();

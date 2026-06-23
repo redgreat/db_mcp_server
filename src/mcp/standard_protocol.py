@@ -142,6 +142,11 @@ def build_standard_mcp_router(
             }
         )
 
+    @router.head("/mcp/sse")
+    async def mcp_sse_head():
+        """兼容部分客户端在建立 SSE 连接前先发起 HEAD 探测。"""
+        return Response(status_code=200)
+
     @router.post("/mcp/message")
     async def mcp_message_endpoint(
         request: Request,
@@ -153,76 +158,121 @@ def build_standard_mcp_router(
         MCP 消息端点
         处理客户端发送的 JSON-RPC 请求
         """
-        if not x_access_key:
-            raise HTTPException(status_code=401, detail="缺少访问密钥")
+        return await _handle_transport_message(
+            request=request,
+            mcp_request=mcp_request,
+            session_id=session_id,
+            x_access_key=x_access_key,
+            cfg=cfg,
+            qp=qp,
+            admin_engine=admin_engine,
+            audit_logger=audit_logger,
+            data_masker=data_masker,
+            ip_checker=ip_checker
+        )
 
-        client_ip = get_real_client_ip(request)
+    @router.post("/mcp/sse")
+    async def mcp_sse_post_compat(
+        request: Request,
+        mcp_request: MCPRequest,
+        session_id: Optional[str] = None,
+        x_access_key: str = Header(default="", alias="X-Access-Key")
+    ):
+        """兼容将 `/mcp/sse` 作为统一消息入口的 MCP 客户端。"""
+        return await _handle_transport_message(
+            request=request,
+            mcp_request=mcp_request,
+            session_id=session_id,
+            x_access_key=x_access_key,
+            cfg=cfg,
+            qp=qp,
+            admin_engine=admin_engine,
+            audit_logger=audit_logger,
+            data_masker=data_masker,
+            ip_checker=ip_checker
+        )
 
-        # IP 白名单检查
-        if client_ip and not ip_checker.check_access(client_ip, x_access_key):
-            raise HTTPException(
-                status_code=403,
-                detail=f"IP {client_ip} 不在访问密钥的白名单中"
-            )
+    return router
 
-        # 记录请求日志方便调试
-        body_str = await request.body()
-        logger.info(f"MCP Request: {body_str.decode()}")
 
-        queue = None
-        if session_id:
-            queue = SESSIONS.get(session_id)
+async def _handle_transport_message(
+    request: Request,
+    mcp_request: MCPRequest,
+    session_id: Optional[str],
+    x_access_key: str,
+    cfg,
+    qp,
+    admin_engine,
+    audit_logger,
+    data_masker,
+    ip_checker
+):
+    """统一处理 `/mcp/message` 与 `/mcp/sse` 的 POST 请求。"""
+    if not x_access_key:
+        raise HTTPException(status_code=401, detail="缺少访问密钥")
 
-        try:
-            result = await handle_mcp_request(
-                mcp_request,
-                x_access_key,
-                client_ip,
-                cfg,
-                qp,
-                admin_engine,
-                audit_logger,
-                data_masker
-            )
+    client_ip = get_real_client_ip(request)
 
-            # 如果是通知 (id 为空)，按照 JSON-RPC 2.0 规范不应有响应消息
-            if mcp_request.id is None:
-                return Response(status_code=202)
+    if client_ip and not ip_checker.check_access(client_ip, x_access_key):
+        raise HTTPException(
+            status_code=403,
+            detail=f"IP {client_ip} 不在访问密钥的白名单中"
+        )
 
-            if queue is None:
-                resp = MCPResponse(
-                    id=mcp_request.id,
-                    result=result
-                )
-                return JSONResponse(resp.model_dump(exclude_none=True))
+    body_str = await request.body()
+    logger.info(f"MCP Request: {body_str.decode()}")
 
+    queue = None
+    if session_id:
+        queue = SESSIONS.get(session_id)
+
+    try:
+        result = await handle_mcp_request(
+            mcp_request,
+            x_access_key,
+            client_ip,
+            cfg,
+            qp,
+            admin_engine,
+            audit_logger,
+            data_masker
+        )
+
+        if mcp_request.id is None:
+            return Response(status_code=202)
+
+        if queue is None:
             resp = MCPResponse(
                 id=mcp_request.id,
                 result=result
             )
-            data = resp.model_dump(exclude_none=True)
-            logger.info(f"Queueing response for {session_id}, id={mcp_request.id}")
-            await queue.put(data)
-            return Response(status_code=202)  # HTTP 层仅返回已接收
+            return JSONResponse(resp.model_dump(exclude_none=True))
 
-        except Exception as e:
-            logger.error(f"MCP Error: {str(e)}")
-            if mcp_request.id is None:
-                return Response(status_code=202)
+        resp = MCPResponse(
+            id=mcp_request.id,
+            result=result
+        )
+        data = resp.model_dump(exclude_none=True)
+        logger.info(f"Queueing response for {session_id}, id={mcp_request.id}")
+        await queue.put(data)
+        return Response(status_code=202)
 
-            resp = MCPResponse(
-                id=mcp_request.id,
-                error={
-                    "code": -32603,
-                    "message": str(e)
-                }
-            )
-            if queue is None:
-                return JSONResponse(resp.model_dump(exclude_none=True))
-            await queue.put(resp.model_dump(exclude_none=True))
+    except Exception as e:
+        logger.error(f"MCP Error: {str(e)}")
+        if mcp_request.id is None:
             return Response(status_code=202)
 
-    return router
+        resp = MCPResponse(
+            id=mcp_request.id,
+            error={
+                "code": -32603,
+                "message": str(e)
+            }
+        )
+        if queue is None:
+            return JSONResponse(resp.model_dump(exclude_none=True))
+        await queue.put(resp.model_dump(exclude_none=True))
+        return Response(status_code=202)
 
 
 async def handle_mcp_request(

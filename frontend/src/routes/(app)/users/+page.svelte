@@ -69,7 +69,8 @@
 			);
 			users = data.items;
 			total = data.total;
-		} catch {
+		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast('加载用户列表失败', 'error');
 		} finally {
 			loading = false;
@@ -109,6 +110,7 @@
 			toast('用户信息已更新', 'success');
 			load(page);
 		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast(err instanceof ApiError ? err.message : '更新失败', 'error');
 		} finally {
 			editLoading = false;
@@ -148,6 +150,7 @@
 			toast('用户已删除', 'success');
 			load(page);
 		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast(err instanceof ApiError ? err.message : '删除失败', 'error');
 		} finally {
 			deleteLoading = false;

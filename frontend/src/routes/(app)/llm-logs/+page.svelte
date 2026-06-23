@@ -67,7 +67,8 @@
 			const res = await api.get<{ items: DailyRow[] }>('/admin/llm_call_logs/daily?days=14');
 			daily = res.items;
 			chartPoints = buildChartPoints(res.items);
-		} catch {
+		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast('加载每日汇总失败', 'error');
 			chartPoints = [];
 		} finally {
@@ -90,6 +91,7 @@
 			logs = res.items;
 			total = res.total;
 		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast(err instanceof ApiError ? err.message : '加载失败', 'error');
 		} finally {
 			logsLoading = false;

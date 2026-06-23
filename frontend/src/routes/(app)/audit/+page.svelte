@@ -4,7 +4,7 @@
   创建人：Antigravity
 -->
 <script lang="ts">
-	import { api } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
 	import { formatDate } from '$lib/utils';
 	import { LOG_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
@@ -68,7 +68,8 @@
 			const data = await api.get<{ items: AuditLog[]; total: number }>(`/admin/audit/logs?${params}`);
 			auditLogs = data.items;
 			auditTotal = data.total;
-		} catch {
+		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast('加载审计日志失败', 'error');
 		} finally {
 			auditLoading = false;
@@ -85,7 +86,8 @@
 			const data = await api.get<{ items: SystemLog[]; total: number }>(`/admin/system/logs?${params}`);
 			sysLogs = data.items;
 			sysTotal = data.total;
-		} catch {
+		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast('加载系统日志失败', 'error');
 		} finally {
 			sysLoading = false;

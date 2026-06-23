@@ -38,7 +38,20 @@ def create_app() -> FastAPI:
         if fav_path.exists():
             from fastapi.responses import FileResponse
             return FileResponse(fav_path)
-        raise HTTPException(status_code=404)
+        from fastapi.responses import Response
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+            '<rect width="32" height="32" rx="6" fill="#4f46e5"/>'
+            '<ellipse cx="16" cy="10" rx="6" ry="3" fill="none" stroke="#fff" stroke-width="2"/>'
+            '<path d="M10 14c0 2 2.7 4 6 4s6-2 6-4" fill="none" stroke="#fff" stroke-width="2"/>'
+            '<path d="M10 18c0 2 2.7 4 6 4s6-2 6-4" fill="none" stroke="#fff" stroke-width="2"/>'
+            '<path d="M10 22c0 2 2.7 4 6 4s6-2 6-4" fill="none" stroke="#fff" stroke-width="2"/>'
+            '<line x1="22" y1="10" x2="22" y2="24" stroke="#fff" stroke-width="2"/>'
+            '<line x1="10" y1="10" x2="10" y2="24" stroke="#fff" stroke-width="2"/>'
+            '<circle cx="16" cy="10" r="1.5" fill="#fff"/>'
+            '</svg>'
+        )
+        return Response(content=svg, media_type="image/svg+xml")
 
     if static_dir.exists():
         from fastapi.staticfiles import StaticFiles

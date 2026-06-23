@@ -43,6 +43,7 @@
 			const res = await api.get<{ items: LLMConfig[] }>('/admin/llm_configs');
 			configs = res.items;
 		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast(err instanceof ApiError ? err.message : '加载失败', 'error');
 		} finally {
 			loading = false;
@@ -78,6 +79,7 @@
 			toast('配置已保存', 'success');
 			await loadConfigs();
 		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast(err instanceof ApiError ? err.message : '保存失败', 'error');
 		} finally {
 			editLoading = false;
@@ -90,6 +92,7 @@
 			toast('已切换激活模型', 'success');
 			await loadConfigs();
 		} catch (err) {
+			if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
 			toast(err instanceof ApiError ? err.message : '激活失败', 'error');
 		}
 	}
