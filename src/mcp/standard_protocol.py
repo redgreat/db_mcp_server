@@ -12,12 +12,15 @@ import asyncio
 import logging
 import uuid
 import os
-import urllib.request
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
 # 全局会话管理：session_id -> asyncio.Queue
 SESSIONS: Dict[str, asyncio.Queue] = {}
+
+_MCP_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("MCP_EXECUTOR_WORKERS", "16")))
 
 
 class MCPMessage(BaseModel):
@@ -45,39 +48,15 @@ class MCPNotification(MCPMessage):
     params: Optional[Dict[str, Any]] = None
 
 
-def _debug_report(hypothesis_id: str, location: str, msg: str, data: Optional[Dict[str, Any]] = None):
-    """向调试服务器上报最小化运行时证据。"""
-    # #region debug-point A:debug-report
-    try:
-        env_path = os.path.join(".dbg", "mcp-list-connections.env")
-        debug_url = "http://127.0.0.1:7777/event"
-        session_id = "mcp-list-connections"
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as env_file:
-                for line in env_file:
-                    if line.startswith("DEBUG_SERVER_URL="):
-                        debug_url = line.split("=", 1)[1].strip() or debug_url
-                    elif line.startswith("DEBUG_SESSION_ID="):
-                        session_id = line.split("=", 1)[1].strip() or session_id
-        payload = json.dumps({
-            "sessionId": session_id,
-            "runId": "pre-fix",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "msg": f"[DEBUG] {msg}",
-            "data": data or {},
-        }).encode("utf-8")
-        urllib.request.urlopen(
-            urllib.request.Request(
-                debug_url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-            ),
-            timeout=0.3,
-        ).read()
-    except Exception:
-        pass
-    # #endregion
+async def run_blocking(func, *args, **kwargs):
+    """在独立线程池中执行阻塞操作，避免阻塞事件循环。"""
+    ctx = contextvars.copy_context()
+    loop = asyncio.get_running_loop()
+
+    def _call():
+        return ctx.run(func, *args, **kwargs)
+
+    return await loop.run_in_executor(_MCP_EXECUTOR, _call)
 
 
 def build_standard_mcp_router(
@@ -111,16 +90,18 @@ def build_standard_mcp_router(
         from sqlalchemy.orm import Session
 
         keys = tbl["access_keys"]
-        with Session(admin_engine) as session:
-            key_row = session.execute(
-                select(keys).where(
-                    keys.c.ak == x_access_key,
-                    keys.c.enabled == True  # noqa: E712
-                )
-            ).first()
+        def _validate_key():
+            with Session(admin_engine) as session:
+                return session.execute(
+                    select(keys).where(
+                        keys.c.ak == x_access_key,
+                        keys.c.enabled == True  # noqa: E712
+                    )
+                ).first()
 
-            if not key_row:
-                raise HTTPException(status_code=401, detail="无效或已禁用的访问密钥")
+        key_row = await run_blocking(_validate_key)
+        if not key_row:
+            raise HTTPException(status_code=401, detail="无效或已禁用的访问密钥")
 
         # 生成唯一会话 ID
         session_id = str(uuid.uuid4())
@@ -137,19 +118,6 @@ def build_standard_mcp_router(
             # 降级方案
             message_url = f"/mcp/message?session_id={session_id}&X-Access-Key={x_access_key}"
 
-        # #region debug-point A:sse-session-created
-        _debug_report(
-            "A",
-            "src/mcp/standard_protocol.py:mcp_sse_endpoint",
-            "SSE session created",
-            {
-                "session_id": session_id,
-                "message_url": message_url,
-                "access_key_tail": x_access_key[-6:] if x_access_key else "",
-            },
-        )
-        # #endregion
-
         async def event_generator():
             """SSE 事件生成器"""
             logger.info(f"SSE Connection established: session_id={session_id}")
@@ -164,19 +132,6 @@ def build_standard_mcp_router(
                         # 缩短超时时间到 15s 以便更频繁地发送心跳
                         msg = await asyncio.wait_for(queue.get(), timeout=15.0)
                         data = json.dumps(msg)
-                        # #region debug-point A:sse-queue-consume
-                        _debug_report(
-                            "A",
-                            "src/mcp/standard_protocol.py:event_generator",
-                            "SSE queue consumed message",
-                            {
-                                "session_id": session_id,
-                                "response_id": msg.get("id") if isinstance(msg, dict) else None,
-                                "has_result": isinstance(msg, dict) and "result" in msg,
-                                "has_error": isinstance(msg, dict) and "error" in msg,
-                            },
-                        )
-                        # #endregion
                         logger.debug(f"SSE sending message to {session_id}: {data[:100]}...")
                         yield f"event: message\ndata: {data}\n\n"
                     except asyncio.TimeoutError:
@@ -288,20 +243,6 @@ async def _handle_transport_message(
     if session_id:
         queue = SESSIONS.get(session_id)
 
-    # #region debug-point A:transport-queue-lookup
-    _debug_report(
-        "A",
-        "src/mcp/standard_protocol.py:_handle_transport_message",
-        "Transport request received",
-        {
-            "session_id": session_id,
-            "queue_found": queue is not None,
-            "method": mcp_request.method,
-            "request_id": mcp_request.id,
-        },
-    )
-    # #endregion
-
     try:
         result = await handle_mcp_request(
             mcp_request,
@@ -318,19 +259,6 @@ async def _handle_transport_message(
             return Response(status_code=202)
 
         if queue is None:
-            # #region debug-point C:transport-direct-response
-            _debug_report(
-                "C",
-                "src/mcp/standard_protocol.py:_handle_transport_message",
-                "Returning direct JSON response because session queue is missing",
-                {
-                    "session_id": session_id,
-                    "method": mcp_request.method,
-                    "request_id": mcp_request.id,
-                    "result_type": type(result).__name__,
-                },
-            )
-            # #endregion
             resp = MCPResponse(
                 id=mcp_request.id,
                 result=result
@@ -342,19 +270,6 @@ async def _handle_transport_message(
             result=result
         )
         data = resp.model_dump(exclude_none=True)
-        # #region debug-point A:transport-queue-response
-        _debug_report(
-            "A",
-            "src/mcp/standard_protocol.py:_handle_transport_message",
-            "Queueing MCP response to SSE session",
-            {
-                "session_id": session_id,
-                "request_id": mcp_request.id,
-                "method": mcp_request.method,
-                "result_type": type(result).__name__,
-            },
-        )
-        # #endregion
         logger.info(f"Queueing response for {session_id}, id={mcp_request.id}")
         await queue.put(data)
         return JSONResponse(data)
@@ -434,17 +349,6 @@ async def handle_mcp_request(
     elif method == "tools/list":
         from .tools import get_tool_definitions
         tools = get_tool_definitions()
-        # #region debug-point B:tools-list-shape
-        _debug_report(
-            "B",
-            "src/mcp/standard_protocol.py:handle_mcp_request",
-            "tools/list executed",
-            {
-                "tool_count": len(tools),
-                "first_tool": tools[0]["name"] if tools else None,
-            },
-        )
-        # #endregion
         return {
             "tools": tools
         }
@@ -452,18 +356,6 @@ async def handle_mcp_request(
     elif method == "tools/call":
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
-
-        # #region debug-point D:tools-call-entry
-        _debug_report(
-            "D",
-            "src/mcp/standard_protocol.py:handle_mcp_request",
-            "tools/call entry",
-            {
-                "tool_name": tool_name,
-                "argument_keys": sorted(list(arguments.keys())),
-            },
-        )
-        # #endregion
 
         return await execute_mcp_tool(
             tool_name,
@@ -496,7 +388,6 @@ async def execute_mcp_tool(
     from ..admin.schema_cache import get_admin_tables
     from ..ai.context import llm_log_context
 
-    tbl = get_admin_tables(admin_engine)
     raw_cid = arguments.get("connection_id")
     try:
         cid = int(raw_cid) if raw_cid is not None else None
@@ -509,22 +400,26 @@ async def execute_mcp_tool(
         tool_name=tool_name,
         connection_id=cid,
     ):
-        return await _execute_mcp_tool_inner(
-            tool_name,
-            arguments,
-            access_key,
-            client_ip,
-            cfg,
-            qp,
-            admin_engine,
-            audit_logger,
-            data_masker,
-            tbl,
-            raw_cid,
-        )
+        def _do():
+            tbl = get_admin_tables(admin_engine)
+            return _execute_mcp_tool_inner(
+                tool_name,
+                arguments,
+                access_key,
+                client_ip,
+                cfg,
+                qp,
+                admin_engine,
+                audit_logger,
+                data_masker,
+                tbl,
+                raw_cid,
+            )
+
+        return await run_blocking(_do)
 
 
-async def _execute_mcp_tool_inner(
+def _execute_mcp_tool_inner(
     tool_name: str,
     arguments: Dict[str, Any],
     access_key: str,
@@ -552,17 +447,6 @@ async def _execute_mcp_tool_inner(
         keys = tbl["access_keys"]
         perms = tbl["permissions"]
         conns = tbl["db_connections"]
-        # #region debug-point D:list-connections-entry
-        _debug_report(
-            "D",
-            "src/mcp/standard_protocol.py:_execute_mcp_tool_inner",
-            "list_connections branch entered",
-            {
-                "search": search,
-                "access_key_tail": access_key[-6:] if access_key else "",
-            },
-        )
-        # #endregion
         with Session(admin_engine) as session:
             key_row = session.execute(
                 select(keys).where(keys.c.ak == access_key)
@@ -594,19 +478,6 @@ async def _execute_mcp_tool_inner(
 
             conn_rows = session.execute(stmt).mappings().all()
             result = {"connections": [dict(r) for r in conn_rows]}
-
-            # #region debug-point D:list-connections-result
-            _debug_report(
-                "D",
-                "src/mcp/standard_protocol.py:_execute_mcp_tool_inner",
-                "list_connections query completed",
-                {
-                    "row_count": len(conn_rows),
-                    "sample_connection": dict(conn_rows[0]) if conn_rows else None,
-                    "return_shape": "content-text-json",
-                },
-            )
-            # #endregion
 
             # 记录审计日志
             duration_ms = int((time.time() - start_time) * 1000)
