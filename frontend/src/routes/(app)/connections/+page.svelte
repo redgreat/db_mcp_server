@@ -42,6 +42,12 @@
 	let testError = $state('');
 	let rowTestingId = $state<number | null>(null);
 
+	const DEFAULT_PORTS: Record<string, string> = {
+		mysql: '3306',
+		postgresql: '5432',
+		mssql: '1433'
+	};
+
 	interface DeletePreview {
 		connection: {
 			id: number;
@@ -259,6 +265,18 @@
 		form = { name: '', host: '', port: '3306', db_type: 'mysql', database: '', username: '', password: '', description: '' };
 	}
 
+	function handleDbTypeChange(nextType: string) {
+		const prevType = form.db_type;
+		const prevDefaultPort = DEFAULT_PORTS[prevType] ?? '3306';
+		const nextDefaultPort = DEFAULT_PORTS[nextType] ?? form.port;
+		const shouldReplacePort = editingConnId === null || form.port === prevDefaultPort || !form.port.trim();
+		form = {
+			...form,
+			db_type: nextType,
+			port: shouldReplacePort ? nextDefaultPort : form.port
+		};
+	}
+
 	function resetTestResult() {
 		testLoading = false;
 		testMessage = '';
@@ -392,7 +410,12 @@
 					</div>
 					<div class="form-control">
 						<label class="label pb-1 text-sm" for="conn-type">类型</label>
-						<select id="conn-type" class="select select-bordered select-sm" bind:value={form.db_type}>
+						<select
+							id="conn-type"
+							class="select select-bordered select-sm"
+							bind:value={form.db_type}
+							onchange={(e) => handleDbTypeChange((e.currentTarget as HTMLSelectElement).value)}
+						>
 							<option value="mysql">MySQL</option>
 							<option value="postgresql">PostgreSQL</option>
 							<option value="mssql">SQL Server</option>

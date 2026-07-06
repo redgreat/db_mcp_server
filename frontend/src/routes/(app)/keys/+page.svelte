@@ -88,6 +88,7 @@
 	// 删除权限/白名单
 	let deletePermId = $state<number | null>(null);
 	let deleteWlId = $state<number | null>(null);
+	let detailKeyId = $state<number | null>(null);
 
 	// 分配用户
 	let assignKeyId = $state<number | null>(null);
@@ -183,6 +184,7 @@
 	}
 
 	function openPermModal(keyId: number) {
+		detailKeyId = null;
 		permKeyId = keyId;
 		selectedPerms = {};
 	}
@@ -190,7 +192,7 @@
 	async function handleAddPerm(e: SubmitEvent) {
 		e.preventDefault();
 		const entries = Object.entries(selectedPerms).filter(([, v]) => v);
-		if (entries.length === 0) { toast('请至少选择一个连接', 'warning'); return; }
+		if (entries.length === 0) { toast('请至少选择一个连接', 'error'); return; }
 		try {
 			for (const [connId, permType] of entries) {
 				const params = new URLSearchParams({
@@ -257,6 +259,7 @@
 	}
 
 	async function openAssignModal(keyId: number) {
+		detailKeyId = null;
 		assignKeyId = keyId;
 		try {
 			const [usersRes, assignedRes] = await Promise.all([
@@ -311,6 +314,41 @@
 	function getAvailableConns(keyId: number) {
 		const used = new Set(getKeyPerms(keyId).map((p) => p.connection_id));
 		return connections.filter((c) => !used.has(c.id));
+	}
+
+	function getSummaryText(total: number, emptyText: string) {
+		if (total === 0) return emptyText;
+		return `${total} 项`;
+	}
+
+	function openDetailModal(keyId: number) {
+		detailKeyId = keyId;
+	}
+
+	function closeDetailModal() {
+		detailKeyId = null;
+	}
+
+	function openDetailPermModal() {
+		if (detailKeyId !== null) {
+			openPermModal(detailKeyId);
+		}
+	}
+
+	function openDetailWhitelistModal() {
+		if (detailKeyId !== null) {
+			wlKeyId = detailKeyId;
+			detailKeyId = null;
+			wlCidr = '';
+			wlDesc = '';
+			wlError = '';
+		}
+	}
+
+	function openDetailAssignModal() {
+		if (detailKeyId !== null) {
+			openAssignModal(detailKeyId);
+		}
 	}
 
 	load();
@@ -392,60 +430,40 @@
 								</div>
 							</td>
 							<td>
-								<div class="flex flex-wrap gap-1 max-w-48">
-									{#each getKeyPerms(key.id) as perm}
-										<div class="badge badge-ghost badge-sm gap-1 group relative">
-											<span class="max-w-20 truncate text-xs">{getConnName(perm.connection_id)}</span>
-											<span class="badge badge-xs {perm.select_only ? 'badge-info' : perm.allow_ddl ? 'badge-error' : 'badge-warning'}">
-												{perm.select_only ? 'RO' : perm.allow_ddl ? 'Full' : 'RW'}
-											</span>
-											{#if authStore.isAdmin}
-												<button
-													class="opacity-0 group-hover:opacity-100 text-error ml-0.5 leading-none"
-													onclick={() => (deletePermId = perm.id)}
-												>×</button>
-											{/if}
-										</div>
-									{/each}
-									{#if authStore.isAdmin}
-										<button
-											class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
-											onclick={() => openPermModal(key.id)}
-										>+ 授权</button>
-									{/if}
+								<div class="flex items-center gap-2 min-w-0">
+									<span class="text-xs text-base-content/65">{getSummaryText(getKeyPerms(key.id).length, '未授权')}</span>
+									<button
+										type="button"
+										class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
+										onclick={() => openDetailModal(key.id)}
+									>
+										详情
+									</button>
 								</div>
 							</td>
 							<td>
-								<div class="flex flex-wrap gap-1 max-w-36">
-									{#each getKeyWl(key.id) as wl}
-										<div class="badge badge-ghost badge-sm group relative">
-											<span class="font-mono text-xs">{wl.cidr}</span>
-											{#if authStore.isAdmin}
-												<button
-													class="opacity-0 group-hover:opacity-100 text-error ml-0.5"
-													onclick={() => (deleteWlId = wl.id)}
-												>×</button>
-											{/if}
-										</div>
-									{/each}
-									{#if authStore.isAdmin}
-										<button
-											class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
-											onclick={() => { wlKeyId = key.id; wlCidr = ''; wlDesc = ''; wlError = ''; }}
-										>+ IP</button>
-									{/if}
+								<div class="flex items-center gap-2 min-w-0">
+									<span class="text-xs text-base-content/65">{getSummaryText(getKeyWl(key.id).length, '未限制')}</span>
+									<button
+										type="button"
+										class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
+										onclick={() => openDetailModal(key.id)}
+									>
+										详情
+									</button>
 								</div>
 							</td>
 							{#if authStore.isAdmin}
 								<td>
-									<div class="flex flex-wrap gap-1 max-w-36">
-										{#each getKeyUsers(key.id) as u}
-											<span class="badge badge-ghost badge-sm text-xs">{u.username}</span>
-										{/each}
+									<div class="flex items-center gap-2 min-w-0">
+										<span class="text-xs text-base-content/65">{getSummaryText(getKeyUsers(key.id).length, '未分配')}</span>
 										<button
+											type="button"
 											class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
-											onclick={() => openAssignModal(key.id)}
-										>+ 分配</button>
+											onclick={() => openDetailModal(key.id)}
+										>
+											详情
+										</button>
 									</div>
 								</td>
 							{/if}
@@ -479,6 +497,131 @@
 		<Pagination {total} {page} {pageSize} onchange={load} />
 	{/if}
 </div>
+
+<!-- 密钥详情 Modal -->
+{#if detailKeyId !== null}
+	{@const currentKey = keys.find((k) => k.id === detailKeyId)}
+	{@const detailPerms = getKeyPerms(detailKeyId)}
+	{@const detailWl = getKeyWl(detailKeyId)}
+	{@const detailUsers = getKeyUsers(detailKeyId)}
+	<div class="modal modal-open">
+		<div class="modal-box max-w-4xl">
+			<h3 class="font-bold text-base mb-2">访问密钥详情</h3>
+			{#if currentKey}
+				<div class="rounded-lg border border-base-300 bg-base-200/80 p-3 mb-4 space-y-1">
+					<div class="font-mono text-xs break-all">{currentKey.ak}</div>
+					<div class="text-sm text-base-content/70">{currentKey.description || '无描述'}</div>
+				</div>
+			{/if}
+			<div class="grid gap-4 md:grid-cols-3">
+				<div class="rounded-lg border border-base-300 bg-base-200/60 p-3">
+					<div class="flex items-center justify-between gap-2 mb-3">
+						<h4 class="font-medium text-sm">授权连接</h4>
+						{#if authStore.isAdmin}
+							<button
+								type="button"
+								class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
+								onclick={openDetailPermModal}
+							>
+								+ 授权
+							</button>
+						{/if}
+					</div>
+					<div class="space-y-2 max-h-80 overflow-y-auto pr-1">
+						{#if detailPerms.length === 0}
+							<p class="text-xs text-base-content/45">暂无授权连接</p>
+						{:else}
+							{#each detailPerms as perm}
+								<div class="flex items-center justify-between gap-2 rounded-lg border border-base-300 px-2 py-2">
+									<div class="min-w-0">
+										<div class="text-sm truncate">{getConnName(perm.connection_id)}</div>
+										<div class="text-xs text-base-content/50">
+											{perm.select_only ? '只读' : perm.allow_ddl ? '完全权限（含 DDL）' : '读写'}
+										</div>
+									</div>
+									<div class="flex items-center gap-2 shrink-0">
+										<span class="badge badge-xs {perm.select_only ? 'badge-info' : perm.allow_ddl ? 'badge-error' : 'badge-warning'}">
+											{perm.select_only ? 'RO' : perm.allow_ddl ? 'Full' : 'RW'}
+										</span>
+										{#if authStore.isAdmin}
+											<button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => (deletePermId = perm.id)}>移除</button>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+				<div class="rounded-lg border border-base-300 bg-base-200/60 p-3">
+					<div class="flex items-center justify-between gap-2 mb-3">
+						<h4 class="font-medium text-sm">IP 白名单</h4>
+						{#if authStore.isAdmin}
+							<button
+								type="button"
+								class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
+								onclick={openDetailWhitelistModal}
+							>
+								+ IP
+							</button>
+						{/if}
+					</div>
+					<div class="space-y-2 max-h-80 overflow-y-auto pr-1">
+						{#if detailWl.length === 0}
+							<p class="text-xs text-base-content/45">暂无白名单限制</p>
+						{:else}
+							{#each detailWl as wl}
+								<div class="flex items-center justify-between gap-2 rounded-lg border border-base-300 px-2 py-2">
+									<div class="min-w-0">
+										<div class="font-mono text-xs break-all">{wl.cidr}</div>
+										<div class="text-xs text-base-content/50">{wl.description || '—'}</div>
+									</div>
+									{#if authStore.isAdmin}
+										<button type="button" class="btn btn-ghost btn-xs text-error shrink-0" onclick={() => (deleteWlId = wl.id)}>删除</button>
+									{/if}
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+				<div class="rounded-lg border border-base-300 bg-base-200/60 p-3">
+					<div class="flex items-center justify-between gap-2 mb-3">
+						<h4 class="font-medium text-sm">已分配用户</h4>
+						{#if authStore.isAdmin}
+							<button
+								type="button"
+								class="badge badge-outline badge-sm cursor-pointer hover:badge-primary text-xs"
+								onclick={openDetailAssignModal}
+							>
+								+ 分配
+							</button>
+						{/if}
+					</div>
+					<div class="space-y-2 max-h-80 overflow-y-auto pr-1">
+						{#if detailUsers.length === 0}
+							<p class="text-xs text-base-content/45">暂无分配用户</p>
+						{:else}
+							{#each detailUsers as u}
+								<div class="flex items-center justify-between gap-2 rounded-lg border border-base-300 px-2 py-2">
+									<div class="min-w-0">
+										<div class="text-sm truncate">{u.username}</div>
+										<div class="text-xs text-base-content/50">{u.email || '—'}</div>
+									</div>
+									<span class="badge badge-xs {u.role === 'admin' ? 'badge-error' : 'badge-info'}">
+										{u.role === 'admin' ? '管理员' : '普通用户'}
+									</span>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+			</div>
+			<div class="modal-action">
+				<button type="button" class="btn btn-ghost btn-sm" onclick={closeDetailModal}>关闭</button>
+			</div>
+		</div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={closeDetailModal}></button>
+	</div>
+{/if}
 
 <!-- 创建密钥 Modal -->
 {#if showAddKeyModal}
