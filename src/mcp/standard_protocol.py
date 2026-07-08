@@ -263,13 +263,13 @@ async def _handle_transport_message(
                 id=mcp_request.id,
                 result=result
             )
-            return JSONResponse(resp.model_dump(exclude_none=True))
+            return JSONResponse(resp.model_dump(exclude_none=True, mode="json"))
 
         resp = MCPResponse(
             id=mcp_request.id,
             result=result
         )
-        data = resp.model_dump(exclude_none=True)
+        data = resp.model_dump(exclude_none=True, mode="json")
         logger.info(f"Queueing response for {session_id}, id={mcp_request.id}")
         await queue.put(data)
         return JSONResponse(data)
@@ -287,8 +287,8 @@ async def _handle_transport_message(
             }
         )
         if queue is None:
-            return JSONResponse(resp.model_dump(exclude_none=True))
-        data = resp.model_dump(exclude_none=True)
+            return JSONResponse(resp.model_dump(exclude_none=True, mode="json"))
+        data = resp.model_dump(exclude_none=True, mode="json")
         await queue.put(data)
         return JSONResponse(data)
 
