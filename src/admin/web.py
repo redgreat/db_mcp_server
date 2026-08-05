@@ -799,6 +799,35 @@ def build_admin_router(cfg: Config):
         logger.info(f"创建访问密钥: {ak} by {user_data['username']}")
         return {"ok": True, "ak": ak}
 
+    @router.patch("/admin/keys/{key_id}/description")
+    async def update_key_description(
+        key_id: int,
+        request: Request,
+        authorization: str = Header(None)
+    ):
+        """更新访问密钥描述"""
+        user_data = auth_service.require_admin(authorization)
+        body = await request.json()
+        description = str(body.get("description", "") or "")
+        keys = tbl["access_keys"]
+        with Session(engine) as s:
+            s.execute(
+                update(keys)
+                .where(keys.c.id == key_id)
+                .values(description=description)
+            )
+            s.commit()
+        system_logger.log(
+            operation="update_key_description",
+            resource_type="access_key",
+            user_id=user_data["user_id"],
+            username=user_data["username"],
+            resource_id=key_id,
+            details={"description": description}
+        )
+        logger.info(f"更新密钥描述: id={key_id} by {user_data['username']}")
+        return {"ok": True}
+
     @router.patch("/admin/keys/{key_id}/sql_risk_check")
     async def update_key_sql_risk_check(
         key_id: int,

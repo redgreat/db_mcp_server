@@ -90,6 +90,11 @@
 	let deleteWlId = $state<number | null>(null);
 	let detailKeyId = $state<number | null>(null);
 
+	// 行内编辑描述
+	let editingDescId = $state<number | null>(null);
+	let editDescValue = $state('');
+	let saveDescLoading = $state(false);
+
 	// 分配用户
 	let assignKeyId = $state<number | null>(null);
 	let allUsers = $state<KeyUser[]>([]);
@@ -351,6 +356,32 @@
 		}
 	}
 
+	async function saveDesc(keyId: number) {
+		if (!authStore.isAdmin) return;
+		saveDescLoading = true;
+		try {
+			await api.patch(`/admin/keys/${keyId}/description`, { description: editDescValue });
+			keys = keys.map((k) => (k.id === keyId ? { ...k, description: editDescValue } : k));
+			editingDescId = null;
+			toast('描述已更新', 'success');
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : '更新失败', 'error');
+		} finally {
+			saveDescLoading = false;
+		}
+	}
+
+	function startEditDesc(keyId: number, currentDesc: string) {
+		if (!authStore.isAdmin) return;
+		editingDescId = keyId;
+		editDescValue = currentDesc || '';
+	}
+
+	function cancelEditDesc() {
+		editingDescId = null;
+		editDescValue = '';
+	}
+
 	load();
 </script>
 
@@ -410,9 +441,43 @@
 							<td>
 								<CellTip value={key.ak} class="font-mono text-xs" maxWidth="max-w-[12rem]" />
 							</td>
-							<td class="text-base-content/60 text-xs">
+							<td class="text-base-content/60 text-xs cursor-pointer hover:bg-base-200 rounded px-0.5 -mx-0.5 min-w-[6rem]"
+							onclick={() => startEditDesc(key.id, key.description)}
+							onkeydown={() => {}} role="button" tabindex="0"
+						>
+							{#if editingDescId === key.id}
+								<div class="flex items-center gap-1">
+									<input
+										type="text"
+										class="input input-bordered input-xs flex-1 min-w-0"
+										bind:value={editDescValue}
+										onkeydown={(e) => {
+											if (e.key === 'Enter') saveDesc(key.id);
+											if (e.key === 'Escape') cancelEditDesc();
+										}}
+										disabled={saveDescLoading}
+									/>
+									<button
+										type="button"
+										class="btn btn-ghost btn-xs px-1"
+										onclick={(e) => { e.stopPropagation(); saveDesc(key.id); }}
+										disabled={saveDescLoading}
+									>
+										✓
+									</button>
+									<button
+										type="button"
+										class="btn btn-ghost btn-xs px-1"
+										onclick={(e) => { e.stopPropagation(); cancelEditDesc(); }}
+										disabled={saveDescLoading}
+									>
+										✕
+									</button>
+								</div>
+							{:else}
 								<CellTip value={key.description || '—'} maxWidth="max-w-[10rem]" />
-							</td>
+							{/if}
+						</td>
 							<td>
 								<div class="flex items-center gap-2">
 									<div class="w-1.5 h-1.5 rounded-full {key.enabled ? 'bg-success pulse-dot' : 'bg-error'}"></div>
