@@ -43,7 +43,7 @@ ifeq ($(OS),Windows_NT)
 	@pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy.ps1
 else
 	@echo "Local redeploy..."
-	@bash scripts/redeploy.sh
+	@bash script/redeploy.sh
 endif
 
 release:
@@ -52,5 +52,5 @@ ifeq ($(OS),Windows_NT)
 	@pwsh -NoProfile -ExecutionPolicy Bypass -File script/dockerbuild.ps1
 else
 	@echo "Release tag push..."
-	@bash scripts/release.sh
+	@bash script/release.sh
 endif
