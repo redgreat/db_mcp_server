@@ -14,6 +14,7 @@ from .models import ensure_schema
 from .auth import AuthService
 from ..security.secret import encrypt_text, decrypt_text
 from ..security.ip_whitelist import IPWhitelistChecker
+from ..security.client_ip import get_real_client_ip
 from ..timezone_util import serialize_row
 from ..db.db_operations import normalize_host_port
 
@@ -105,6 +106,33 @@ def build_admin_router(cfg: Config):
     from ..logging.system_logger import SystemLogger
     system_logger = SystemLogger(engine)
 
+    def _log_system_op(
+        operation: str,
+        resource_type: str,
+        user_id: Optional[int] = None,
+        username: Optional[str] = None,
+        resource_id: Optional[int] = None,
+        details: Optional[dict] = None,
+        request: Optional[Request] = None,
+    ) -> None:
+        """记录系统操作日志（自动提取客户端 IP，日志失败不影响主流程）"""
+        try:
+            ip = get_real_client_ip(request) if request is not None else None
+        except Exception:
+            ip = None
+        try:
+            system_logger.log(
+                operation=operation,
+                resource_type=resource_type,
+                user_id=user_id,
+                username=username,
+                resource_id=resource_id,
+                details=details,
+                client_ip=ip,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("系统操作日志写入失败: %s", e)
+
     def _generate_access_key() -> str:
         return secrets.token_hex(16)
 
@@ -162,7 +190,7 @@ def build_admin_router(cfg: Config):
     # ==================== 认证相关API ====================
 
     @router.post("/admin/login")
-    def login(req: LoginRequest):
+    def login(req: LoginRequest, request: Request):
         """管理员登录"""
         admin_users = tbl["admin_users"]
 
@@ -175,10 +203,23 @@ def build_admin_router(cfg: Config):
             ).mappings().first()
 
             if not user:
+                # 记录登录失败（原因与密码错误保持一致，避免暴露用户名是否存在）
+                _log_system_op(
+                    "login", "auth",
+                    username=req.username,
+                    details={"result": "failed", "reason": "用户名或密码错误"},
+                    request=request,
+                )
                 raise HTTPException(status_code=401, detail="用户名或密码错误")
 
             # 验证密码
             if not auth_service.verify_password(req.password, user["password_hash"]):
+                _log_system_op(
+                    "login", "auth",
+                    username=req.username,
+                    details={"result": "failed", "reason": "用户名或密码错误"},
+                    request=request,
+                )
                 raise HTTPException(status_code=401, detail="用户名或密码错误")
 
             # 生成token（包含角色信息）
@@ -186,6 +227,15 @@ def build_admin_router(cfg: Config):
                 user["id"],
                 user["username"],
                 user.get("role", "user")  # 包含角色
+            )
+
+            # 记录登录成功
+            _log_system_op(
+                "login", "auth",
+                user_id=user["id"],
+                username=user["username"],
+                details={"result": "success", "role": user.get("role", "user")},
+                request=request,
             )
 
             logger.info(f"用户登录成功: {req.username} (role={user.get('role', 'user')})")
@@ -200,10 +250,24 @@ def build_admin_router(cfg: Config):
             }
 
     @router.post("/admin/logout")
-    def logout(authorization: str = Header(None)):
+    def logout(request: Request, authorization: str = Header(None)):
         """管理员登出"""
         # 简单实现：客户端删除token即可
         # 如需token黑名单，可在sessions表标记revoked=True
+        user_data = None
+        try:
+            if authorization:
+                user_data = auth_service.get_current_user(authorization)
+        except Exception:  # noqa: BLE001
+            user_data = None
+
+        _log_system_op(
+            "logout", "auth",
+            user_id=user_data.get("user_id") if user_data else None,
+            username=user_data.get("username") if user_data else None,
+            details={"result": "success"},
+            request=request,
+        )
         return {"message": "登出成功"}
 
     @router.get("/admin/me")
@@ -213,10 +277,11 @@ def build_admin_router(cfg: Config):
         return {"user": user_data}
 
     @router.post("/admin/change_password")
-    def change_password(req: ChangePasswordRequest, authorization: str = Header(None)):
+    def change_password(request: Request, req: ChangePasswordRequest, authorization: str = Header(None)):
         """修改当前登录管理员密码"""
         user_data = auth_service.get_current_user(authorization)
         user_id = user_data["user_id"]
+        username = user_data.get("username")
 
         admin_users = tbl["admin_users"]
 
@@ -229,6 +294,12 @@ def build_admin_router(cfg: Config):
                 raise HTTPException(status_code=404, detail="用户不存在")
 
             if not auth_service.verify_password(req.old_password, row["password_hash"]):
+                _log_system_op(
+                    "change_password", "auth",
+                    user_id=user_id, username=username,
+                    details={"result": "failed", "reason": "原密码错误"},
+                    request=request,
+                )
                 raise HTTPException(status_code=400, detail="原密码错误")
 
             if not req.new_password:
@@ -243,6 +314,12 @@ def build_admin_router(cfg: Config):
             )
             session.commit()
 
+        _log_system_op(
+            "change_password", "auth",
+            user_id=user_id, username=username,
+            details={"result": "success"},
+            request=request,
+        )
         return {"ok": True}
 
     # ==================== 用户管理 ====================
@@ -503,9 +580,9 @@ def build_admin_router(cfg: Config):
             return {"items": items}
 
     @router.put("/admin/llm_configs/{config_id}")
-    def update_llm_config(config_id: int, req: UpdateLLMConfigRequest, authorization: str = Header(None)):
+    def update_llm_config(request: Request, config_id: int, req: UpdateLLMConfigRequest, authorization: str = Header(None)):
         """更新指定的 LLM 配置"""
-        auth_service.require_admin(authorization)
+        user = auth_service.require_admin(authorization)
 
         llm_configs = tbl["llm_configs"]
 
@@ -532,12 +609,25 @@ def build_admin_router(cfg: Config):
         from ..ai.service import reset_llm_client
         reset_llm_client()
 
+        # 记录系统操作日志（不记录密钥明文）
+        _log_system_op(
+            "update_llm_config", "llm_config",
+            user_id=user.get("user_id"), username=user.get("username"),
+            resource_id=config_id,
+            details={
+                "base_url": req.base_url,
+                "model_name": req.model_name,
+                "has_api_key": bool(req.api_key and req.api_key.strip()),
+            },
+            request=request,
+        )
+
         return {"ok": True, "message": "配置已更新"}
 
     @router.post("/admin/llm_configs/{config_id}/activate")
-    def activate_llm_config(config_id: int, authorization: str = Header(None)):
+    def activate_llm_config(request: Request, config_id: int, authorization: str = Header(None)):
         """激活指定的 LLM 配置"""
-        auth_service.require_admin(authorization)
+        user = auth_service.require_admin(authorization)
 
         llm_configs = tbl["llm_configs"]
 
@@ -556,6 +646,15 @@ def build_admin_router(cfg: Config):
         ensure_single_llm_active(engine)
         from ..ai.service import reset_llm_client
         reset_llm_client()
+
+        # 记录系统操作日志
+        _log_system_op(
+            "activate_llm_config", "llm_config",
+            user_id=user.get("user_id"), username=user.get("username"),
+            resource_id=config_id,
+            details={"provider": existing.get("provider"), "model_name": existing.get("model_name")},
+            request=request,
+        )
 
         return {"ok": True, "message": f"已激活配置: {existing['provider']}"}
 
@@ -1106,9 +1205,9 @@ def build_admin_router(cfg: Config):
         return {"ok": True}
 
     @router.post("/admin/connections/test")
-    def test_connection(req: TestConnectionRequest, authorization: str = Header(None)):
+    def test_connection(request: Request, req: TestConnectionRequest, authorization: str = Header(None)):
         """测试数据库连接有效性（仅管理员）"""
-        auth_service.require_admin(authorization)
+        user = auth_service.require_admin(authorization)
 
         password = req.password or ""
         if not password and req.connection_id is not None:
@@ -1122,6 +1221,13 @@ def build_admin_router(cfg: Config):
         if not password:
             raise HTTPException(status_code=400, detail="请先填写数据库密码后再测试连接")
 
+        _test_details = {
+            "host": req.host,
+            "port": req.port,
+            "database": req.database,
+            "db_type": req.db_type,
+            "username": req.username,
+        }
         try:
             host, port = normalize_host_port(req.host, req.port)
             _test_database_connection(
@@ -1144,6 +1250,13 @@ def build_admin_router(cfg: Config):
                 req.username,
                 exc,
             )
+            _log_system_op(
+                "test_connection", "connection",
+                user_id=user.get("user_id"), username=user.get("username"),
+                resource_id=req.connection_id,
+                details={**_test_details, "result": "failed", "reason": str(exc)[:500]},
+                request=request,
+            )
             raise HTTPException(status_code=400, detail=f"连接失败: {exc}") from exc
         except Exception as exc:
             logger.warning(
@@ -1155,8 +1268,22 @@ def build_admin_router(cfg: Config):
                 req.username,
                 exc,
             )
+            _log_system_op(
+                "test_connection", "connection",
+                user_id=user.get("user_id"), username=user.get("username"),
+                resource_id=req.connection_id,
+                details={**_test_details, "result": "failed", "reason": str(exc)[:500]},
+                request=request,
+            )
             raise HTTPException(status_code=400, detail=f"连接失败: {exc}") from exc
 
+        _log_system_op(
+            "test_connection", "connection",
+            user_id=user.get("user_id"), username=user.get("username"),
+            resource_id=req.connection_id,
+            details={**_test_details, "result": "success"},
+            request=request,
+        )
         return {"ok": True, "message": "连接测试成功"}
 
     @router.put("/admin/connections/{conn_id}")

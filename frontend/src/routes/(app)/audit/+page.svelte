@@ -56,6 +56,24 @@
 	let sysFilterOp = $state('');
 	let sysFilterResource = $state('');
 
+	// 详情弹窗（替代原生 tooltip，避免长文本错乱）
+	let auditDetail = $state<AuditLog | null>(null);
+	let sysDetail = $state<SystemLog | null>(null);
+
+	function closeDetail() {
+		auditDetail = null;
+		sysDetail = null;
+	}
+
+	function prettyJson(value: unknown): string {
+		if (value == null) return '';
+		try {
+			return JSON.stringify(value, null, 2);
+		} catch {
+			return String(value);
+		}
+	}
+
 	const pageSize = LOG_PAGE_SIZE;
 
 	async function loadAudit(p = 1) {
@@ -168,6 +186,7 @@
 							<th class="admin-th text-right">行数</th>
 							<th class="admin-th text-right">耗时</th>
 							<th class="admin-th">状态</th>
+							<th class="admin-th text-right">详情</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -188,15 +207,29 @@
 									{#if log.status === 'success'}
 										<span class="badge badge-success badge-xs">成功</span>
 									{:else}
-										<div class="tooltip tooltip-left" data-tip={log.error_message || ''}>
-											<span class="badge badge-error badge-xs">失败</span>
-										</div>
+										<button
+											type="button"
+											class="badge badge-error badge-xs cursor-pointer hover:opacity-80"
+											onclick={() => (auditDetail = log)}
+										>
+											失败
+										</button>
 									{/if}
+								</td>
+								<td class="text-right">
+									<button
+										type="button"
+										class="btn btn-xs btn-ghost"
+										title="查看详情"
+										onclick={() => (auditDetail = log)}
+									>
+										查看
+									</button>
 								</td>
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="8" class="text-center text-base-content/40 py-8">暂无日志记录</td>
+								<td colspan="9" class="text-center text-base-content/40 py-8">暂无日志记录</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -211,27 +244,54 @@
 		<div class="flex flex-wrap gap-2 mb-4">
 			<select class="select select-bordered select-sm" bind:value={sysFilterOp}>
 				<option value="">所有操作</option>
-				<option value="create_key">创建密钥</option>
-				<option value="delete_key">删除密钥</option>
-				<option value="toggle_key">启用/禁用密钥</option>
-				<option value="assign_permission">分配权限</option>
-				<option value="delete_permission">删除权限</option>
-				<option value="add_whitelist">添加白名单</option>
-				<option value="delete_whitelist">删除白名单</option>
-				<option value="create_connection">创建连接</option>
-				<option value="delete_connection">删除连接</option>
-				<option value="create_user">创建用户</option>
-				<option value="delete_user">删除用户</option>
-				<option value="update_user">更新用户</option>
-				<option value="reset_password">重置密码</option>
+				<optgroup label="认证">
+					<option value="login">用户登录</option>
+					<option value="logout">用户登出</option>
+					<option value="change_password">修改密码</option>
+				</optgroup>
+				<optgroup label="用户管理">
+					<option value="create_user">创建用户</option>
+					<option value="update_user">更新用户</option>
+					<option value="delete_user">删除用户</option>
+					<option value="reset_password">重置密码</option>
+				</optgroup>
+				<optgroup label="访问密钥">
+					<option value="create_key">创建密钥</option>
+					<option value="update_key_description">更新密钥描述</option>
+					<option value="toggle_sql_risk_check">切换SQL风险检查</option>
+					<option value="toggle_key">启用/禁用密钥</option>
+					<option value="delete_key">删除密钥</option>
+					<option value="assign_key_users">分配密钥用户</option>
+					<option value="remove_key_user">移除密钥用户</option>
+				</optgroup>
+				<optgroup label="数据库连接">
+					<option value="create_connection">创建连接</option>
+					<option value="update_connection">更新连接</option>
+					<option value="delete_connection">删除连接</option>
+					<option value="test_connection">测试连接</option>
+				</optgroup>
+				<optgroup label="权限">
+					<option value="assign_permission">分配权限</option>
+					<option value="delete_permission">删除权限</option>
+				</optgroup>
+				<optgroup label="IP 白名单">
+					<option value="add_whitelist">添加白名单</option>
+					<option value="delete_whitelist">删除白名单</option>
+				</optgroup>
+				<optgroup label="大模型配置">
+					<option value="update_llm_config">更新大模型配置</option>
+					<option value="activate_llm_config">激活大模型配置</option>
+				</optgroup>
 			</select>
 			<select class="select select-bordered select-sm" bind:value={sysFilterResource}>
 				<option value="">所有资源类型</option>
+				<option value="auth">认证</option>
+				<option value="admin_user">管理员用户</option>
 				<option value="access_key">访问密钥</option>
+				<option value="connection">数据库连接</option>
 				<option value="permission">权限</option>
 				<option value="whitelist">IP 白名单</option>
-				<option value="connection">数据库连接</option>
-				<option value="admin_user">管理员用户</option>
+				<option value="llm_config">大模型配置</option>
 			</select>
 			<button class="btn btn-sm btn-primary" onclick={() => loadSys(1)}>查询</button>
 			<button class="btn btn-sm btn-ghost" onclick={() => { sysFilterOp = ''; sysFilterResource = ''; loadSys(1); }}>重置</button>
@@ -264,11 +324,17 @@
 								<td class="text-xs">{log.resource_type}</td>
 								<td class="text-xs text-base-content/60">{log.resource_id ?? '-'}</td>
 								<td>
-									<CellTip
-										value={JSON.stringify(log.details || {})}
-										class="font-mono text-xs text-base-content/60"
-										maxWidth="max-w-[14rem]"
-									/>
+									{#if log.details && Object.keys(log.details).length > 0}
+										<button
+											type="button"
+											class="btn btn-xs btn-ghost text-primary"
+											onclick={() => (sysDetail = log)}
+										>
+											查看
+										</button>
+									{:else}
+										<span class="text-xs text-base-content/40">—</span>
+									{/if}
 								</td>
 								<td class="text-xs font-mono">{log.client_ip || '-'}</td>
 							</tr>
@@ -284,3 +350,101 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- 数据库操作日志详情弹窗 -->
+{#if auditDetail}
+	<div class="modal modal-open z-50">
+		<div class="modal-box max-w-3xl max-h-[85vh] overflow-y-auto">
+			<h3 class="font-bold text-lg mb-1 flex items-center gap-2 tracking-tight">
+				数据库操作日志详情
+				{#if auditDetail.status === 'success'}
+					<span class="badge badge-success badge-xs">成功</span>
+				{:else}
+					<span class="badge badge-error badge-xs">失败</span>
+				{/if}
+			</h3>
+			<div class="text-xs text-base-content/50 mb-4">{formatDate(auditDetail.timestamp)}</div>
+
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">
+				<div>
+					<div class="text-base-content/50 mb-0.5">访问密钥</div>
+					<div class="font-mono break-all">{auditDetail.access_key || '-'}</div>
+				</div>
+				<div>
+					<div class="text-base-content/50 mb-0.5">客户端 IP</div>
+					<div class="font-mono">{auditDetail.client_ip || '-'}</div>
+				</div>
+				<div>
+					<div class="text-base-content/50 mb-0.5">操作</div>
+					<div class="font-mono">{auditDetail.operation || '-'}</div>
+				</div>
+				<div>
+					<div class="text-base-content/50 mb-0.5">行数 / 耗时</div>
+					<div class="font-mono">
+						{auditDetail.rows_affected ?? '-'} 行 / {auditDetail.duration_ms}ms
+					</div>
+				</div>
+			</div>
+
+			{#if auditDetail.sql_text}
+				<div class="mb-3">
+					<div class="text-xs text-base-content/50 mb-1">SQL 语句</div>
+					<pre class="bg-base-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap break-all max-h-48 overflow-y-auto">{auditDetail.sql_text}</pre>
+				</div>
+			{/if}
+
+			{#if auditDetail.status === 'error' && auditDetail.error_message}
+				<div>
+					<div class="text-xs text-error mb-1">错误信息</div>
+					<pre class="bg-error/10 border border-error/30 rounded-lg p-3 text-xs font-mono text-error whitespace-pre-wrap break-all max-h-48 overflow-y-auto">{auditDetail.error_message}</pre>
+				</div>
+			{/if}
+
+			<div class="modal-action">
+				<button type="button" class="btn btn-sm" onclick={closeDetail}>关闭</button>
+			</div>
+		</div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={closeDetail}></button>
+	</div>
+{/if}
+
+<!-- 系统操作日志详情弹窗 -->
+{#if sysDetail}
+	<div class="modal modal-open z-50">
+		<div class="modal-box max-w-3xl max-h-[85vh] overflow-y-auto">
+			<h3 class="font-bold text-lg mb-1 tracking-tight">系统操作日志详情</h3>
+			<div class="text-xs text-base-content/50 mb-4">{formatDate(sysDetail.timestamp)}</div>
+
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">
+				<div>
+					<div class="text-base-content/50 mb-0.5">操作人</div>
+					<div>{sysDetail.username || '-'}</div>
+				</div>
+				<div>
+					<div class="text-base-content/50 mb-0.5">操作类型</div>
+					<div class="font-mono">{sysDetail.operation || '-'}</div>
+				</div>
+				<div>
+					<div class="text-base-content/50 mb-0.5">资源类型</div>
+					<div class="font-mono">{sysDetail.resource_type || '-'}</div>
+				</div>
+				<div>
+					<div class="text-base-content/50 mb-0.5">客户端 IP</div>
+					<div class="font-mono">{sysDetail.client_ip || '-'}</div>
+				</div>
+			</div>
+
+			{#if sysDetail.details && Object.keys(sysDetail.details).length > 0}
+				<div>
+					<div class="text-xs text-base-content/50 mb-1">操作详情</div>
+					<pre class="bg-base-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap break-all max-h-72 overflow-y-auto">{prettyJson(sysDetail.details)}</pre>
+				</div>
+			{/if}
+
+			<div class="modal-action">
+				<button type="button" class="btn btn-sm" onclick={closeDetail}>关闭</button>
+			</div>
+		</div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={closeDetail}></button>
+	</div>
+{/if}
