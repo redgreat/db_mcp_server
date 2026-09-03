@@ -113,6 +113,11 @@ def build_mcp_router(
 
             duration_ms = int((time.time() - start_time) * 1000)
 
+            # 提取结果中的行数（如果有的话）
+            rows_affected = None
+            if isinstance(result, dict):
+                rows_affected = result.get("count") or result.get("rows_affected")
+
             # 记录审计日志
             audit_logger.log(
                 operation=f"mcp_{req.tool}",
@@ -121,6 +126,7 @@ def build_mcp_router(
                 client_ip=client_ip,
                 connection_id=connection_id,
                 sql_text=args.get("sql"),
+                rows_affected=rows_affected,
                 duration_ms=duration_ms,
                 metadata={"tool": req.tool, "arguments": args}
             )

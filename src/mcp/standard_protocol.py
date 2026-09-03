@@ -1128,6 +1128,12 @@ def _execute_mcp_tool_inner(
 
         # 记录审计日志
         duration_ms = int((time.time() - start_time) * 1000)
+
+        # 提取结果中的行数（如果有的话）
+        rows_affected = None
+        if isinstance(result, dict):
+            rows_affected = result.get("count") or result.get("rows_affected")
+
         audit_logger.log(
             operation=f"mcp_{tool_name}",
             status="success",
@@ -1135,6 +1141,7 @@ def _execute_mcp_tool_inner(
             client_ip=client_ip,
             connection_id=connection_id,
             sql_text=arguments.get("sql"),
+            rows_affected=rows_affected,
             duration_ms=duration_ms
         )
 

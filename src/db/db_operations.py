@@ -116,7 +116,16 @@ class QueryProxy:
                 port=int(port),
                 database=db,
             )
-            eng = create_engine(url, pool_pre_ping=True)
+            # 优化连接池配置，提升并发性能
+            eng = create_engine(
+                url,
+                pool_size=20,           # 连接池大小：保持 20 个连接
+                max_overflow=30,        # 超出池大小后最多可创建 30 个连接
+                pool_pre_ping=True,     # 连接前先 ping 检测是否有效
+                pool_recycle=3600,      # 连接回收时间（秒），防止 MySQL 断开空闲连接
+                pool_timeout=30,        # 获取连接的超时时间（秒）
+                echo=False              # 生产环境关闭 SQL 日志
+            )
             self.engines[key] = eng
         return eng
 
