@@ -1,0 +1,1 @@
+import{A as e,H as t,U as n,W as r}from"./CJzhdxHj.js";var i=r(t([])),a=0;function o(t,r=`info`){let o=++a;n(i,[...e(i),{id:o,message:t,type:r}],!0),setTimeout(()=>{n(i,e(i).filter(e=>e.id!==o),!0)},4200)}function s(t){n(i,e(i).filter(e=>e.id!==t),!0)}var c={get items(){return e(i)}};export{o as n,c as r,s as t};

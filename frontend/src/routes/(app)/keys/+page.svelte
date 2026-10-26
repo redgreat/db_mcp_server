@@ -6,7 +6,7 @@
 <script lang="ts">
 	import { api, ApiError } from '$lib/api';
 	import { authStore } from '$lib/stores/auth.svelte';
-	import { formatDate, truncate } from '$lib/utils';
+	import { copyToClipboard, formatDate, truncate } from '$lib/utils';
 	import { LIST_PAGE_SIZE } from '$lib/constants';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import CellTip from '$lib/components/CellTip.svelte';
@@ -100,6 +100,23 @@
 	let allUsers = $state<KeyUser[]>([]);
 	let assignedUserIds = $state<Set<number>>(new Set());
 	let assignLoading = $state(false);
+	let assignUserSearch = $state('');
+
+	// 授权连接弹窗：搜索 + 分页懒加载
+	let permConnSearch = $state('');
+	let permConnList = $state<Connection[]>([]);
+	let permConnTotal = $state(0);
+	let permConnPage = $state(1);
+	let permConnLoading = $state(false);
+	let permSearchTimer: ReturnType<typeof setTimeout> | null = null;
+	const PERM_CONN_PAGE_SIZE = 10;
+
+	// MCP 客户端接入信息（sse_url 缓存一次，复制配置时本地拼装）
+	let sseUrl = $state('');
+	// 使用规范弹窗
+	let rulesDoc = $state('');
+	let rulesKey = $state<Key | null>(null);
+	let rulesLoading = $state(false);
 
 	async function load(p = 1) {
 		loading = true;
@@ -130,6 +147,54 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function loadMcpInfo() {
+		if (sseUrl) return;
+		try {
+			const info = await api.get<{ sse_url: string }>('/admin/mcp_client_info');
+			sseUrl = info.sse_url;
+		} catch {
+			// 接口不可用时退回当前站点地址
+			sseUrl = `${window.location.origin}/mcp/sse`;
+		}
+	}
+
+	async function copyMcpConfig(key: Key) {
+		if (!sseUrl) await loadMcpInfo();
+		const config = {
+			mcpServers: {
+				dbmcp: {
+					url: sseUrl,
+					headers: { 'X-Access-Key': key.ak }
+				}
+			}
+		};
+		const ok = await copyToClipboard(JSON.stringify(config, null, 2));
+		toast(ok ? 'MCP 客户端配置已复制' : '复制失败，请手动复制', ok ? 'success' : 'error');
+	}
+
+	async function openRulesModal(key: Key) {
+		rulesKey = key;
+		rulesDoc = '';
+		rulesLoading = true;
+		try {
+			const info = await api.get<{ rules_markdown: string }>(
+				`/admin/mcp_client_info?ak=${encodeURIComponent(key.ak)}`
+			);
+			rulesDoc = info.rules_markdown;
+		} catch {
+			rulesDoc = '';
+			toast('加载使用规范失败', 'error');
+		} finally {
+			rulesLoading = false;
+		}
+	}
+
+	async function copyRulesDoc() {
+		if (!rulesDoc) return;
+		const ok = await copyToClipboard(rulesDoc);
+		toast(ok ? '使用规范已复制' : '复制失败，请手动选择文本复制', ok ? 'success' : 'error');
 	}
 
 	async function handleAddKey(e: SubmitEvent) {
@@ -192,6 +257,64 @@
 		detailKeyId = null;
 		permKeyId = keyId;
 		selectedPerms = {};
+		permConnSearch = '';
+		permConnList = [];
+		permConnPage = 1;
+		permConnTotal = 0;
+		loadPermConns(true);
+	}
+
+	function getGrantedConnIds(keyId: number): Set<number> {
+		return new Set(getKeyPerms(keyId).map((p) => p.connection_id));
+	}
+
+	async function loadPermConns(reset = false) {
+		if (permKeyId === null || permConnLoading) return;
+		if (reset) {
+			permConnList = [];
+			permConnPage = 1;
+			permConnTotal = 0;
+		}
+		permConnLoading = true;
+		try {
+			const params = new URLSearchParams({
+				page: String(permConnPage),
+				page_size: String(PERM_CONN_PAGE_SIZE),
+				sort: 'id_asc'
+			});
+			if (permConnSearch.trim()) params.set('search', permConnSearch.trim());
+			const data = await api.get<{ items: Connection[]; total: number }>(
+				`/admin/connections?${params}`
+			);
+			const granted = getGrantedConnIds(permKeyId);
+			const existing = new Set(permConnList.map((c) => c.id));
+			const fresh = data.items.filter((c) => !granted.has(c.id) && !existing.has(c.id));
+			permConnList = [...permConnList, ...fresh];
+			permConnTotal = data.total;
+			permConnPage += 1;
+		} catch {
+			toast('加载连接列表失败', 'error');
+		} finally {
+			permConnLoading = false;
+		}
+	}
+
+	function queuePermConnSearch() {
+		if (permSearchTimer) clearTimeout(permSearchTimer);
+		permSearchTimer = setTimeout(() => loadPermConns(true), 300);
+	}
+
+	// 是否还有下一页（按服务端分页进度判断，而非已展示条数——部分连接可能因已授权被过滤）
+	const permConnHasMore = $derived(
+		permKeyId !== null && (permConnPage - 1) * PERM_CONN_PAGE_SIZE < permConnTotal
+	);
+
+	function handlePermConnScroll(e: Event) {
+		const el = e.currentTarget as HTMLElement;
+		if (permConnLoading) return;
+		if (el.scrollHeight - el.scrollTop - el.clientHeight < 60 && permConnHasMore) {
+			loadPermConns();
+		}
 	}
 
 	async function handleAddPerm(e: SubmitEvent) {
@@ -266,6 +389,7 @@
 	async function openAssignModal(keyId: number) {
 		detailKeyId = null;
 		assignKeyId = keyId;
+		assignUserSearch = '';
 		try {
 			const [usersRes, assignedRes] = await Promise.all([
 				api.get<{ items: KeyUser[] }>('/admin/users?page_size=1000'),
@@ -316,10 +440,15 @@
 		return keyUsersMap[keyId] ?? [];
 	}
 
-	function getAvailableConns(keyId: number) {
-		const used = new Set(getKeyPerms(keyId).map((p) => p.connection_id));
-		return connections.filter((c) => !used.has(c.id));
-	}
+	const filteredAssignUsers = $derived.by(() => {
+		const q = assignUserSearch.trim().toLowerCase();
+		if (!q) return allUsers;
+		return allUsers.filter(
+			(u) =>
+				u.username.toLowerCase().includes(q) ||
+				(u.email || '').toLowerCase().includes(q)
+		);
+	});
 
 	function getSummaryText(total: number, emptyText: string) {
 		if (total === 0) return emptyText;
@@ -383,6 +512,7 @@
 	}
 
 	load();
+	loadMcpInfo();
 </script>
 
 <svelte:head>
@@ -536,6 +666,22 @@
 							{#if authStore.isAdmin}
 								<td class="col-actions">
 									<RowActions>
+										<button
+											type="button"
+											class="btn-act btn-act-info"
+											title="复制 MCP 客户端接入配置"
+											onclick={() => copyMcpConfig(key)}
+										>
+											复制配置
+										</button>
+										<button
+											type="button"
+											class="btn-act btn-act-primary"
+											title="预览并复制 MCP 使用规范"
+											onclick={() => openRulesModal(key)}
+										>
+											使用规范
+										</button>
 										<button
 											type="button"
 											class="btn-act {key.enabled ? 'btn-act-warning' : 'btn-act-success'}"
@@ -722,17 +868,31 @@
 
 <!-- 授权连接 Modal -->
 {#if permKeyId !== null}
-	{@const available = getAvailableConns(permKeyId)}
 	<div class="modal modal-open">
 		<div class="modal-box max-w-md">
-			<h3 class="font-bold text-base mb-4">为密钥分配数据库权限</h3>
-			{#if available.length === 0}
-				<p class="text-base-content/50 text-sm text-center py-6">所有连接已全部授权</p>
+			<h3 class="font-bold text-base mb-3">为密钥分配数据库权限</h3>
+			<!-- 连接搜索 -->
+			<div class="flex gap-2 mb-3">
+				<input
+					type="text"
+					class="input input-bordered input-sm flex-1"
+					placeholder="按 ID 或名称搜索连接"
+					bind:value={permConnSearch}
+					oninput={queuePermConnSearch}
+				/>
+				{#if permConnLoading}
+					<span class="loading loading-spinner loading-sm text-primary self-center"></span>
+				{/if}
+			</div>
+			{#if permConnList.length === 0 && !permConnLoading}
+				<p class="text-base-content/50 text-sm text-center py-6">
+					{permConnSearch.trim() ? '没有匹配的连接' : '所有连接已全部授权'}
+				</p>
 				<div class="modal-action"><button class="btn btn-ghost btn-sm" onclick={() => (permKeyId = null)}>关闭</button></div>
 			{:else}
 				<form onsubmit={handleAddPerm}>
-					<div class="space-y-2 max-h-80 overflow-y-auto pr-1">
-						{#each available as conn}
+					<div class="space-y-2 max-h-80 overflow-y-auto pr-1" onscroll={handlePermConnScroll}>
+						{#each permConnList as conn}
 							<div class="card card-compact bg-base-200 border border-base-300">
 								<div class="card-body p-3">
 									<div class="flex items-center gap-2 mb-2">
@@ -773,6 +933,19 @@
 								</div>
 							</div>
 						{/each}
+						{#if permConnLoading}
+							<div class="flex justify-center py-2">
+								<span class="loading loading-spinner loading-xs text-primary"></span>
+							</div>
+						{:else if permConnHasMore}
+							<button
+								type="button"
+								class="btn btn-ghost btn-xs w-full text-base-content/50"
+								onclick={() => loadPermConns()}
+							>
+								加载更多（已加载 {permConnList.length} 条）
+							</button>
+						{/if}
 					</div>
 					<div class="modal-action mt-4">
 						<button type="button" class="btn btn-ghost btn-sm" onclick={() => (permKeyId = null)}>取消</button>
@@ -822,10 +995,16 @@
 {#if assignKeyId !== null}
 	<div class="modal modal-open">
 		<div class="modal-box max-w-sm">
-			<h3 class="font-bold text-base mb-4">分配用户权限</h3>
+			<h3 class="font-bold text-base mb-3">分配用户权限</h3>
+			<input
+				type="text"
+				class="input input-bordered input-sm w-full mb-3"
+				placeholder="按用户名或邮箱搜索"
+				bind:value={assignUserSearch}
+			/>
 			<form onsubmit={handleAssignUsers}>
 				<div class="space-y-1 max-h-72 overflow-y-auto">
-					{#each allUsers as u}
+					{#each filteredAssignUsers as u}
 						<label class="flex items-center gap-3 p-2 rounded-lg hover:bg-base-200 cursor-pointer">
 							<input type="checkbox" class="checkbox checkbox-sm checkbox-primary"
 								checked={assignedUserIds.has(u.id)}
@@ -835,6 +1014,10 @@
 								{u.role === 'admin' ? '管理员' : '普通用户'}
 							</span>
 						</label>
+					{:else}
+						<p class="text-center text-base-content/40 text-sm py-6">
+							{assignUserSearch.trim() ? '没有匹配的用户' : '暂无可分配用户'}
+						</p>
 					{/each}
 				</div>
 				<p class="text-xs text-base-content/40 mt-2">选中的用户可以在密钥列表中看到此密钥</p>
@@ -848,6 +1031,39 @@
 			</form>
 		</div>
 		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (assignKeyId = null)}></button>
+	</div>
+{/if}
+
+<!-- MCP 使用规范预览 Modal -->
+{#if rulesKey !== null}
+	<div class="modal modal-open">
+		<div class="modal-box max-w-3xl max-h-[85vh] flex flex-col">
+			<div class="flex items-start justify-between gap-3 mb-3">
+				<div class="min-w-0">
+					<h3 class="font-bold text-base">MCP 使用规范</h3>
+					<p class="text-xs text-base-content/50 font-mono break-all mt-1">{rulesKey.ak}</p>
+				</div>
+				<button
+					type="button"
+					class="btn btn-primary btn-sm shrink-0"
+					disabled={!rulesDoc || rulesLoading}
+					onclick={copyRulesDoc}
+				>
+					复制规范
+				</button>
+			</div>
+			{#if rulesLoading}
+				<div class="flex justify-center py-12">
+					<span class="loading loading-spinner loading-md text-primary"></span>
+				</div>
+			{:else}
+				<pre class="flex-1 overflow-y-auto bg-base-200 rounded-lg p-4 text-xs font-mono whitespace-pre-wrap break-all">{rulesDoc}</pre>
+			{/if}
+			<div class="modal-action mt-4">
+				<button type="button" class="btn btn-ghost btn-sm" onclick={() => (rulesKey = null)}>关闭</button>
+			</div>
+		</div>
+		<button type="button" class="modal-backdrop" aria-label="关闭" onclick={() => (rulesKey = null)}></button>
 	</div>
 {/if}
 

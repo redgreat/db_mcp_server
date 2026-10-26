@@ -226,6 +226,13 @@ code {
 .app-shell-admin main .admin-row-actions .btn-act-success:hover {
   filter: brightness(1.08);
 }
+.app-shell-admin main .admin-row-actions .btn-act-info {
+  background-color: var(--color-info);
+  color: var(--color-info-content);
+}
+.app-shell-admin main .admin-row-actions .btn-act-info:hover {
+  filter: brightness(1.08);
+}
 .app-shell-admin main .admin-row-actions .btn-act-warning {
   background-color: var(--color-warning);
   color: var(--color-warning-content);

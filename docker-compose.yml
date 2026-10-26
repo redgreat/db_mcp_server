@@ -1,6 +1,6 @@
 services:
   db-mcp-server:
-    image: registry.cn-hangzhou.aliyuncs.com/redgreat/db_mcp:latest
+    image: quay.io/redgreat/db_mcp_server:latest
     container_name: db_mcp_server
     init: true
     ports:

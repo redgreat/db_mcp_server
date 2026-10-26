@@ -32,6 +32,8 @@
 	let page = $state(1);
 	const pageSize = LIST_PAGE_SIZE;
 	let loading = $state(false);
+	let search = $state('');
+	let idSort = $state<'id_asc' | 'id_desc'>('id_asc');
 
 	let showConnModal = $state(false);
 	let editingConnId = $state<number | null>(null);
@@ -84,8 +86,14 @@
 		loading = true;
 		page = p;
 		try {
+			const params = new URLSearchParams({
+				page: String(p),
+				page_size: String(pageSize),
+				sort: idSort
+			});
+			if (search.trim()) params.set('search', search.trim());
 			const data = await api.get<{ items: Connection[]; total: number }>(
-				`/admin/connections?page=${p}&page_size=${pageSize}`
+				`/admin/connections?${params}`
 			);
 			connections = data.items;
 			total = data.total;
@@ -94,6 +102,11 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	function toggleIdSort() {
+		idSort = idSort === 'id_asc' ? 'id_desc' : 'id_asc';
+		load(1);
 	}
 
 	function openAddModal() {
@@ -307,6 +320,19 @@
 		{/if}
 	</div>
 
+	<!-- 查询条件 -->
+	<div class="flex flex-wrap gap-2 mb-4">
+		<input
+			type="text"
+			class="input input-bordered input-sm w-52"
+			placeholder="按 ID 或名称搜索"
+			bind:value={search}
+			onkeydown={(e) => { if (e.key === 'Enter') load(1); }}
+		/>
+		<button class="btn btn-sm btn-primary" onclick={() => load(1)}>查询</button>
+		<button class="btn btn-sm btn-ghost" onclick={() => { search = ''; load(1); }}>重置</button>
+	</div>
+
 	{#if loading}
 		<div class="flex justify-center items-center py-20">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
@@ -316,7 +342,16 @@
 			<table class="table table-zebra table-sm table-admin w-full">
 				<thead>
 					<tr>
-						<th class="admin-th w-14">ID</th>
+						<th class="admin-th w-20 cursor-pointer select-none" onclick={toggleIdSort} title="点击切换 ID 排序">
+							<span class="inline-flex items-center gap-1">
+								ID
+								{#if idSort === 'id_asc'}
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.5 15.75 12 8.25l7.5 7.5" /></svg>
+								{:else}
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+								{/if}
+							</span>
+						</th>
 						<th class="admin-th">名称</th>
 						<th class="admin-th">类型</th>
 						<th class="admin-th">主机</th>

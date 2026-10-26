@@ -1,5 +1,5 @@
 <!--
-  应用主布局：侧边栏 + 顶部导航栏
+  应用主布局：可收缩侧边栏 + 顶栏（主题切换 / 用户菜单）
   创建时间：2026-05-01
   创建人：Antigravity
 -->
@@ -7,11 +7,14 @@
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth.svelte';
+	import { themeStore } from '$lib/stores/theme.svelte';
 	import { api, ApiError } from '$lib/api';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	let { children } = $props();
+
+	const SIDEBAR_KEY = 'db_mcp_sidebar_collapsed';
 
 	let showChangePwd = $state(false);
 	let oldPassword = $state('');
@@ -21,7 +24,11 @@
 	let pwdError = $state('');
 
 	let showLogoutConfirm = $state(false);
-	let sidebarOpen = $state(true);
+
+	// 桌面端：侧边栏收起为图标栏（持久化，手动展开后不再自动收缩）
+	let sidebarCollapsed = $state(false);
+	// 移动端：抽屉式侧边栏开关
+	let mobileOpen = $state(false);
 
 	const navItems = $derived([
 		{
@@ -60,7 +67,17 @@
 			: [])
 	]);
 
+	// 顶栏显示的当前页面标题
+	const currentNavLabel = $derived(
+		navItems.find((i) => $page.url.pathname.startsWith(i.path))?.label ?? 'DB MCP Server'
+	);
+
 	onMount(async () => {
+		try {
+			sidebarCollapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
+		} catch {
+			/* ignore */
+		}
 		if (!authStore.token) {
 			goto('/login');
 			return;
@@ -78,6 +95,20 @@
 			}
 		}
 	});
+
+	// 路由变化时关闭移动端抽屉
+	beforeNavigate(() => {
+		mobileOpen = false;
+	});
+
+	function toggleSidebar() {
+		sidebarCollapsed = !sidebarCollapsed;
+		try {
+			localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? '1' : '0');
+		} catch {
+			/* ignore */
+		}
+	}
 
 	function handleLogout() {
 		authStore.logout();
@@ -115,96 +146,162 @@
 	}
 </script>
 
-<div class="drawer lg:drawer-open min-h-screen">
-	<input id="sidebar-drawer" type="checkbox" class="drawer-toggle" bind:checked={sidebarOpen} />
-
-	<!-- 侧边栏 -->
-	<div class="drawer-side z-40">
-		<label for="sidebar-drawer" class="drawer-overlay"></label>
-		<aside class="admin-sidebar w-72 min-h-screen bg-base-200 border-r border-base-300 flex flex-col">
-			<!-- Logo -->
-			<div class="p-4 border-b border-base-300">
-				<div class="flex items-center gap-3">
-					<div class="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
-						<svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-								d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-						</svg>
-					</div>
-					<div>
-						<div class="admin-sidebar-brand-title font-bold leading-tight">DB MCP Server</div>
-						<div class="admin-sidebar-brand-sub text-base-content/45">管理后台</div>
-					</div>
+{#snippet sidebarContent(expanded: boolean)}
+	<!-- Logo -->
+	<div class="border-b border-base-300 {expanded ? 'p-4' : 'p-3'}">
+		<div class="flex items-center {expanded ? 'gap-3' : 'justify-center'}">
+			<div class="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+				<svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+						d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+				</svg>
+			</div>
+			{#if expanded}
+				<div class="min-w-0">
+					<div class="admin-sidebar-brand-title font-bold leading-tight">DB MCP Server</div>
+					<div class="admin-sidebar-brand-sub text-base-content/45">管理后台</div>
 				</div>
-			</div>
-
-			<!-- 导航菜单 -->
-			<nav class="flex-1 p-3 space-y-1">
-				{#each navItems as item}
-					<a
-						href={item.path}
-						class="admin-sidebar-link flex items-center gap-3 px-3 py-3 rounded-lg font-medium transition-all relative
-							{isActive(item.path)
-							? 'bg-primary/10 text-primary sidebar-active'
-							: 'text-base-content/60 hover:text-base-content hover:bg-base-300'}"
-					>
-						<svg class="w-5 h-5 flex-shrink-0 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							{@html item.icon}
-						</svg>
-						{item.label}
-					</a>
-				{/each}
-			</nav>
-
-			<!-- 底部用户信息 -->
-			<div class="p-3 border-t border-base-300">
-				{#if authStore.user}
-					<div class="flex items-center gap-2 px-2 py-2 rounded-lg">
-						<div class="avatar placeholder">
-							<div class="w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold flex items-center justify-center">
-								{authStore.user.username[0].toUpperCase()}
-							</div>
-						</div>
-						<div class="flex-1 min-w-0">
-							<div class="admin-sidebar-user-name font-medium truncate">{authStore.user.username}</div>
-							<div class="admin-sidebar-user-role text-base-content/45">
-								{authStore.user.role === 'admin' ? '管理员' : '普通用户'}
-							</div>
-						</div>
-					</div>
-					<div class="flex gap-1 mt-2">
-						<button
-							class="btn btn-ghost btn-sm flex-1 min-h-10 text-sm"
-							onclick={() => (showChangePwd = true)}
-						>
-							修改密码
-						</button>
-						<button
-							class="btn btn-ghost btn-sm flex-1 min-h-10 text-sm text-error hover:bg-error/10"
-							onclick={() => (showLogoutConfirm = true)}
-						>
-							退出
-						</button>
-					</div>
-				{/if}
-			</div>
-		</aside>
+			{/if}
+		</div>
 	</div>
 
+	<!-- 导航菜单 -->
+	<nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+		{#each navItems as item}
+			<a
+				href={item.path}
+				title={expanded ? '' : item.label}
+				class="admin-sidebar-link flex items-center rounded-lg font-medium transition-all relative
+					{expanded ? 'gap-3 px-3 py-3' : 'justify-center px-0 py-3'}
+					{isActive(item.path)
+					? 'bg-primary/10 text-primary sidebar-active'
+					: 'text-base-content/60 hover:text-base-content hover:bg-base-300'}"
+			>
+				<svg class="w-5 h-5 flex-shrink-0 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					{@html item.icon}
+				</svg>
+				{#if expanded}
+					<span class="truncate">{item.label}</span>
+				{/if}
+			</a>
+		{/each}
+	</nav>
+{/snippet}
+
+<div class="flex min-h-screen">
+	<!-- 桌面端侧边栏（图标栏 / 展开，手动切换且持久化） -->
+	<aside
+		class="admin-sidebar hidden lg:flex flex-col flex-shrink-0 min-h-screen bg-base-200 border-r border-base-300 overflow-hidden transition-[width] duration-200
+			{sidebarCollapsed ? 'w-[4.5rem]' : 'w-72'}"
+	>
+		{@render sidebarContent(!sidebarCollapsed)}
+	</aside>
+
+	<!-- 移动端抽屉侧边栏 -->
+	{#if mobileOpen}
+		<div class="fixed inset-0 z-40 lg:hidden">
+			<button
+				type="button"
+				class="absolute inset-0 bg-black/50 cursor-default"
+				aria-label="关闭菜单"
+				onclick={() => (mobileOpen = false)}
+			></button>
+			<aside class="admin-sidebar absolute left-0 top-0 h-full w-72 bg-base-200 border-r border-base-300 flex flex-col shadow-2xl">
+				{@render sidebarContent(true)}
+			</aside>
+		</div>
+	{/if}
+
 	<!-- 主内容区 -->
-	<div class="drawer-content flex flex-col">
-		<!-- 顶部栏（移动端） -->
-		<header class="lg:hidden navbar bg-base-100 border-b border-base-300 px-4">
-			<label for="sidebar-drawer" class="btn btn-ghost btn-sm">
+	<div class="flex-1 flex flex-col min-w-0">
+		<!-- 顶栏 -->
+		<header class="sticky top-0 z-30 flex items-center gap-2 h-14 px-3 sm:px-4 bg-base-100/90 backdrop-blur border-b border-base-300">
+			<!-- 菜单开关：桌面切换折叠，移动端打开抽屉 -->
+			<button
+				type="button"
+				class="btn btn-ghost btn-sm btn-square hidden lg:inline-flex"
+				title={sidebarCollapsed ? '展开菜单' : '收起菜单'}
+				onclick={toggleSidebar}
+			>
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
 				</svg>
-			</label>
-			<span class="text-sm font-semibold ml-2">DB MCP Server</span>
+			</button>
+			<button
+				type="button"
+				class="btn btn-ghost btn-sm btn-square lg:hidden"
+				aria-label="打开菜单"
+				onclick={() => (mobileOpen = true)}
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+				</svg>
+			</button>
+
+			<span class="font-semibold text-base tracking-tight truncate">{currentNavLabel}</span>
+
+			<div class="flex-1"></div>
+
+			<!-- 主题切换 -->
+			<button
+				type="button"
+				class="btn btn-ghost btn-sm btn-square"
+				title={themeStore.isDark ? '切换到亮色主题' : '切换到暗色主题'}
+				onclick={() => themeStore.toggle()}
+			>
+				{#if themeStore.isDark}
+					<!-- 太阳图标：点击切到亮色 -->
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+							d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+					</svg>
+				{:else}
+					<!-- 月亮图标：点击切到暗色 -->
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+							d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+					</svg>
+				{/if}
+			</button>
+
+			<!-- 用户下拉 -->
+			{#if authStore.user}
+				<div class="dropdown dropdown-end">
+					<button tabindex="0" class="btn btn-ghost btn-sm gap-2 pl-1.5">
+						<div class="w-7 h-7 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center">
+							{authStore.user.username[0].toUpperCase()}
+						</div>
+						<span class="max-w-32 truncate">{authStore.user.username}</span>
+						<svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+						</svg>
+					</button>
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 w-44 p-2 shadow-xl border border-base-300">
+						<li>
+							<button
+								type="button"
+								onclick={(e) => { (e.currentTarget as HTMLElement).blur(); showChangePwd = true; }}
+							>
+								修改密码
+							</button>
+						</li>
+						<li>
+							<button
+								type="button"
+								class="text-error"
+								onclick={(e) => { (e.currentTarget as HTMLElement).blur(); showLogoutConfirm = true; }}
+							>
+								退出登录
+							</button>
+						</li>
+					</ul>
+				</div>
+			{/if}
 		</header>
 
 		<!-- 页面内容 -->
-		<main class="flex-1 p-6 overflow-auto">
+		<main class="flex-1 p-4 sm:p-6 overflow-auto">
 			{@render children()}
 		</main>
 	</div>

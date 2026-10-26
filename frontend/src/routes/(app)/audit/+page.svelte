@@ -47,6 +47,7 @@
 	let auditLoading = $state(false);
 	let filterKey = $state('');
 	let filterOp = $state('');
+	let filterMinDuration = $state('');
 
 	// 系统日志
 	let sysLogs = $state<SystemLog[]>([]);
@@ -82,6 +83,10 @@
 		const params = new URLSearchParams({ page: String(p), page_size: String(pageSize) });
 		if (filterKey) params.set('access_key', filterKey);
 		if (filterOp) params.set('operation', filterOp);
+		const minSec = parseFloat(filterMinDuration);
+		if (filterMinDuration && !Number.isNaN(minSec) && minSec > 0) {
+			params.set('min_duration_ms', String(Math.round(minSec * 1000)));
+		}
 		try {
 			const data = await api.get<{ items: AuditLog[]; total: number }>(`/admin/audit/logs?${params}`);
 			auditLogs = data.items;
@@ -110,6 +115,19 @@
 		} finally {
 			sysLoading = false;
 		}
+	}
+
+	/** 慢查询行高亮：≥5s 红色、≥1s 橙色 */
+	function durationCellClass(ms: number): string {
+		if (ms >= 5000) return 'text-error font-bold';
+		if (ms >= 1000) return 'text-warning font-semibold';
+		return '';
+	}
+
+	function durationRowClass(ms: number): string {
+		if (ms >= 5000) return 'bg-error/5';
+		if (ms >= 1000) return 'bg-warning/5';
+		return '';
 	}
 
 	function switchTab(tab: LogTab) {
@@ -165,8 +183,20 @@
 				<option value="metadata_tables">表列表</option>
 				<option value="metadata_table_info">表结构</option>
 			</select>
+			<div class="flex items-center gap-1">
+				<input
+					type="number"
+					min="0"
+					step="0.5"
+					class="input input-bordered input-sm w-32"
+					placeholder="耗时 ≥ 秒"
+					bind:value={filterMinDuration}
+					onkeydown={(e) => { if (e.key === 'Enter') loadAudit(1); }}
+				/>
+				<span class="text-xs text-base-content/45">秒</span>
+			</div>
 			<button class="btn btn-sm btn-primary" onclick={() => loadAudit(1)}>查询</button>
-			<button class="btn btn-sm btn-ghost" onclick={() => { filterKey = ''; filterOp = ''; loadAudit(1); }}>重置</button>
+			<button class="btn btn-sm btn-ghost" onclick={() => { filterKey = ''; filterOp = ''; filterMinDuration = ''; loadAudit(1); }}>重置</button>
 		</div>
 
 		{#if auditLoading}
@@ -191,7 +221,7 @@
 					</thead>
 					<tbody>
 						{#each auditLogs as log}
-							<tr class="hover">
+							<tr class="hover {durationRowClass(log.duration_ms)}">
 								<td class="text-xs text-base-content/60 whitespace-nowrap">{formatDate(log.timestamp)}</td>
 								<td><CellTip value={log.access_key} class="font-mono text-xs" maxWidth="max-w-[10rem]" /></td>
 								<td class="text-xs font-mono">{log.client_ip || '-'}</td>
@@ -202,7 +232,9 @@
 									<CellTip value={log.sql_text || '—'} class="font-mono text-xs text-base-content/70" maxWidth="max-w-[16rem]" />
 								</td>
 								<td class="text-right text-xs">{log.rows_affected ?? '-'}</td>
-								<td class="text-right text-xs">{log.duration_ms}ms</td>
+								<td class="text-right text-xs {durationCellClass(log.duration_ms)}">
+									{log.duration_ms >= 1000 ? `${(log.duration_ms / 1000).toFixed(2)}s` : `${log.duration_ms}ms`}
+								</td>
 								<td>
 									{#if log.status === 'success'}
 										<span class="badge badge-success badge-xs">成功</span>
