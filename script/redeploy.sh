@@ -11,9 +11,8 @@ echo "➤ 1. 停止并移除旧容器: dbmcp..."
 docker compose stop dbmcp
 docker compose rm -f dbmcp
 
-echo "➤ 2. 删除本地所有的 dbmcp 镜像记录..."
-# 注意：这会查找带有 dbmcp 名称的镜像，并按 ID 强制删除
-docker images | grep 'dbmcp' | awk '{print $3}' | xargs -r docker rmi -f
+echo "➤ 2. 删除本地所有的 mcp 镜像记录..."
+docker images --filter=reference='*mcp*' -q | sort -u | xargs -r docker rmi -f
 
 echo "➤ 3. 清理所有旧的日志数据..."
 # 删除根目录下 ./log/ 内的所有文件及文件夹
