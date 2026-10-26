@@ -25,6 +25,7 @@
 		provider: string;
 		model_name: string;
 		access_key: string | null;
+		access_key_description: string | null;
 		call_source: string;
 		tool_name: string | null;
 		connection_id: number | null;
@@ -45,6 +46,12 @@
 	let logsLoading = $state(false);
 	let filterKey = $state('');
 	const pageSize = LIST_PAGE_SIZE;
+
+	/** 访问密钥展示：ak(描述)，无描述时只显示 ak */
+	function akLabel(ak: string | null | undefined, desc?: string | null): string {
+		if (!ak) return '—';
+		return desc ? `${ak}(${desc})` : ak;
+	}
 
 	function buildChartPoints(rows: DailyRow[]): DayPoint[] {
 		const map = new Map<string, { tokens: number; calls: number }>();
@@ -150,7 +157,7 @@
 					{#each logs as log}
 						<tr class="hover">
 							<td class="whitespace-nowrap text-base-content/70">{formatDate(log.timestamp)}</td>
-							<td><CellTip value={log.access_key || '—'} maxWidth="max-w-[9rem]" /></td>
+							<td><CellTip value={akLabel(log.access_key, log.access_key_description)} maxWidth="max-w-[14rem]" /></td>
 							<td><span class="badge badge-ghost badge-xs">{log.call_source}</span></td>
 							<td><CellTip value={log.tool_name || '—'} maxWidth="max-w-[8rem]" /></td>
 							<td>

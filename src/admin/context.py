@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import HTTPException, Request
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine, URL
+from sqlalchemy.orm import Session
 
 from ..config import Config
 from ..db.db_operations import normalize_host_port
@@ -130,6 +131,19 @@ class AdminContext:
             ip_checker=IPWhitelistChecker(engine),
             system_logger=SystemLogger(engine),
         )
+
+    def fetch_key_descriptions(self, aks) -> dict:
+        """批量查询访问密钥的描述，返回 {ak: description}（用于日志列表关联展示）"""
+        aks = [a for a in aks if a]
+        if not aks:
+            return {}
+        access_keys = self.tbl["access_keys"]
+        with Session(self.engine) as s:
+            rows = s.execute(
+                select(access_keys.c.ak, access_keys.c.description)
+                .where(access_keys.c.ak.in_(aks))
+            ).all()
+        return {r[0]: (r[1] or "") for r in rows}
 
     def log_system_op(
         self,

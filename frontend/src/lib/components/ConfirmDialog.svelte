@@ -29,7 +29,8 @@
 </script>
 
 {#if open}
-	<div class="modal modal-open z-50">
+	<!-- z 需高于 DaisyUI .modal 的 999，保证叠在其他弹窗之上（如详情弹窗内触发的删除确认） -->
+	<div class="modal modal-open z-[1000]">
 		<div class="modal-box {maxWidth}">
 			<h3 class="font-bold text-lg mb-2 tracking-tight">{title}</h3>
 			{#if message}

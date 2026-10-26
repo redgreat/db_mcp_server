@@ -18,6 +18,7 @@
 		id: number;
 		timestamp: string;
 		access_key: string;
+		access_key_description: string | null;
 		client_ip: string;
 		operation: string;
 		sql_text: string;
@@ -130,6 +131,12 @@
 		return '';
 	}
 
+	/** 访问密钥展示：ak(描述)，无描述时只显示 ak */
+	function akLabel(ak: string | null | undefined, desc?: string | null): string {
+		if (!ak) return '—';
+		return desc ? `${ak}(${desc})` : ak;
+	}
+
 	function switchTab(tab: LogTab) {
 		activeTab = tab;
 		if (tab === 'audit' && auditLogs.length === 0) loadAudit();
@@ -223,7 +230,7 @@
 						{#each auditLogs as log}
 							<tr class="hover {durationRowClass(log.duration_ms)}">
 								<td class="text-xs text-base-content/60 whitespace-nowrap">{formatDate(log.timestamp)}</td>
-								<td><CellTip value={log.access_key} class="font-mono text-xs" maxWidth="max-w-[10rem]" /></td>
+								<td><CellTip value={akLabel(log.access_key, log.access_key_description)} class="font-mono text-xs" maxWidth="max-w-[14rem]" /></td>
 								<td class="text-xs font-mono">{log.client_ip || '-'}</td>
 								<td>
 									<span class="badge badge-ghost badge-xs">{log.operation}</span>
@@ -400,7 +407,7 @@
 			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">
 				<div>
 					<div class="text-base-content/50 mb-0.5">访问密钥</div>
-					<div class="font-mono break-all">{auditDetail.access_key || '-'}</div>
+					<div class="font-mono break-all">{akLabel(auditDetail.access_key, auditDetail.access_key_description)}</div>
 				</div>
 				<div>
 					<div class="text-base-content/50 mb-0.5">客户端 IP</div>

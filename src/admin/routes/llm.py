@@ -183,8 +183,16 @@ def build_router(ctx: AdminContext) -> APIRouter:
                 q.order_by(desc(logs.c.timestamp)).offset(offset).limit(page_size)
             ).mappings().all()
 
+        # 关联访问密钥描述（实时关联：修改密钥描述后历史日志同步生效）
+        desc_map = ctx.fetch_key_descriptions(r["access_key"] for r in rows)
+        items = []
+        for r in rows:
+            item = serialize_row(r)
+            item["access_key_description"] = desc_map.get(r["access_key"]) or None
+            items.append(item)
+
         return {
-            "items": [serialize_row(r) for r in rows],
+            "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
